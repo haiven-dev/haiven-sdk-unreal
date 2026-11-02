@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.0.0",
+	"FriendlyName": "Haiven",
+	"Description": "Client SDK for the Haiven API: game login handoff, the /v0/ws socket protocol, and the REST surface.",
+	"Category": "Networking",
+	"CreatedBy": "Haiven",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "Haiven",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "WebSocketNetworking",
+			"Enabled": false
+		}
+	]
+}

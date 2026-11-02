@@ -1,0 +1,38 @@
+{
+  "primary": "5.8.2",
+  "platform": "Linux",
+  "target": "HaivenTestsEditor",
+  "configuration": "Development",
+  "expectedTests": [
+    "Haiven.Plugin.Loads",
+    "Haiven.Protocol.RefusedReply",
+    "Haiven.Protocol.Event",
+    "Haiven.Protocol.ServerInitiatedReply",
+    "Haiven.Auth.PkceAndAuthorizationUrl",
+    "Haiven.Auth.CallbackGuardsAndForm",
+    "Haiven.Auth.ReplayExpiryCancellation",
+    "Haiven.Auth.CredentialLifetime",
+    "Haiven.Session.AuthQueueReauth",
+    "Haiven.Client.ReflectedSurface"
+  ],
+  "engines": [
+    {
+      "version": [5, 8, 2],
+      "association": "5.8",
+      "toolchain": "v26_clang-20.1.8-rockylinux8",
+      "clangVersion": "20.1.8",
+      "installPath": "/opt/unreal/5.8.2",
+      "rootEnv": "UNREAL_ENGINE_ROOT_5_8",
+      "runnerLabel": "unreal-5.8.2-clang20"
+    },
+    {
+      "version": [5, 6, 1],
+      "association": "5.6",
+      "toolchain": "v25_clang-18.1.0-rockylinux8",
+      "clangVersion": "18.1.0rc",
+      "installPath": "/opt/unreal/5.6.1",
+      "rootEnv": "UNREAL_ENGINE_ROOT_5_6",
+      "runnerLabel": "unreal-5.6.1-clang18"
+    }
+  ]
+}

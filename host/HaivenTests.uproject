@@ -1,0 +1,19 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "",
+  "Category": "Tests",
+  "Description": "Haiven plugin engine automation host",
+  "Modules": [
+    {
+      "Name": "HaivenTests",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "Haiven",
+      "Enabled": true
+    }
+  ]
+}
