@@ -213,3 +213,28 @@ and verify the Blueprint nodes through reflection. They do not contact a live
 HTTP/WebSocket fixture, so network-adapter execution remains a future engine
 integration case. `#sdkunrealeditorci` still owns provisioned GitHub runners;
 local engine proof does not establish hosted-runner availability.
+
+## Releases
+
+`.github/workflows/release.yml` publishes a GitHub release when a `v*` tag is
+pushed; `ci/release.py` builds every asset, so each step also runs locally.
+
+1. Bump `VersionName` in `Haiven/Haiven.uplugin` to the new version on `main`
+   (and `Version`, the integer, by one). The workflow refuses a tag that is not
+   exactly `v` + `VersionName`.
+2. Tag that commit and push the tag: `git tag v1.2.3 && git push origin v1.2.3`.
+
+Assets, each a zip with one top-level `Haiven/` folder for `<Project>/Plugins/`:
+
+- `haiven-unreal-plugin-source-<version>.zip`: the plugin without
+  Binaries/Intermediate; builds against any engine in `ci/engines.json`.
+- `haiven-unreal-plugin-<version>-UE<major.minor>-Linux.zip`: `RunUAT.sh
+  BuildPlugin` output per engine, with prebuilt `Binaries/Linux` and the
+  packaged descriptor's `EngineVersion` pinned to that engine.
+- `SHA256SUMS` over the zips.
+
+Win64 and Mac binaries are not built: they need a Windows or macOS runner with
+the engine installed. Dispatching the workflow by hand with no tag is a dry run
+that builds every asset at the branch's `VersionName` and publishes nothing.
+The binary job runs on self-hosted runners, so the workflow must never gain a
+`pull_request` trigger: this repository is public.
