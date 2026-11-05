@@ -26,7 +26,8 @@ import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-SDK = HERE.parents[1]
+# unreal/ci used parents[1] for the monorepo root. This file now lives in ci/.
+SDK = HERE.parent
 MATRIX = json.loads((HERE / "engines.json").read_text())
 
 
