@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.0.0",
+	"Version": 2,
+	"VersionName": "0.1.0-preview.1",
 	"FriendlyName": "Haiven",
 	"Description": "Client SDK for the Haiven API: game login handoff, the /v0/ws socket protocol, and the REST surface.",
 	"Category": "Networking",
