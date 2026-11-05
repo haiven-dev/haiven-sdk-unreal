@@ -1,6 +1,6 @@
 # Unreal engine automation host
 
-The host builds and enables the actual `unreal/Haiven` plugin. Ten unattended
+The host builds and enables the actual `Haiven` plugin. Ten unattended
 engine tests cover plugin discovery/module loading; refused replies, events, and
 server-initiated replies with empty request IDs; and game-login PKCE, callback
 binding, one-use replay, expiry/cancellation, credential expiry, and the
@@ -15,8 +15,9 @@ parser.
 its toolchain directory, compiler version, default install path, root
 environment variable, runner label, and the `EngineAssociation` the runner
 stamps into the staged host. `primary` names the version a bare
-`python3 unreal/ci/run.py` builds. Adding an engine is a row there plus a
-matrix entry in `.github/workflows/unreal-editor.yml`.
+`python3 ci/run.py` builds. Adding an engine is a row there.
+`.github/workflows/release.yml` builds one Linux plugin per row when a `v*` tag
+is pushed. `.github/workflows/build.yml` runs the engine-free checks.
 
 | Version | Toolchain | Install path | Root variable | Runner label |
 | --- | --- | --- | --- | --- |
@@ -84,14 +85,13 @@ target rules.
 ## Run from the SDK root
 
 ```sh
-python3 unreal/ci/run.py            # the primary engine
-python3 unreal/ci/run.py 5.6.1      # one named engine
-python3 unreal/ci/run.py all        # every engine in the matrix, in order
+python3 ci/run.py            # the primary engine
+python3 ci/run.py 5.6.1      # one named engine
+python3 ci/run.py all        # every engine in the matrix, in order
 ```
 
-`mise run test:unreal` and `mise run test:unreal:all` are the same two calls
-with the engine-root environment already set. `HAIVEN_UNREAL_VERSION` is the
-environment equivalent of the argument.
+Run from the repository root. `HAIVEN_UNREAL_VERSION` is the environment
+equivalent of the argument.
 
 The harness stages a fresh host and plugin in a temporary directory, stamps the
 selected engine's `EngineAssociation` into the staged `.uproject`, builds
@@ -105,8 +105,9 @@ terminated. Logs and exported JSON/HTML are retained per engine under
 
 The validator requires all ten named tests exactly once, each with `Success`,
 no error events/counts, and no failed/unrun/in-progress report totals. Existing
-standalone C++ checks and report-validator tests remain in `make check`, but
-do not prove Unreal compilation or execution.
+standalone C++ checks (`./verify.sh`) and report-validator tests
+(`python3 -m unittest discover -s ci -p 'test_*.py'`) do not prove Unreal
+compilation or execution.
 
 ## Extending the engine surface
 

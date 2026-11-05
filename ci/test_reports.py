@@ -10,6 +10,11 @@ runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
 class ReportTests(unittest.TestCase):
+    def test_sdk_root_is_this_repository(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(runner.SDK, root)
+        self.assertEqual(runner.HERE, root / "ci")
+
     def test_expected_results(self):
         good = {"failed":0,"notRun":0,"inProcess":0,"tests":[{"fullTestPath":"Haiven.Plugin.Loads","state":"Success","entries":[],"errors":0}]}
         reports = [(good, True)]
