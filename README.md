@@ -98,21 +98,41 @@ credentials itself.
 
 ## Running it
 
-```
-make check        # from the repository root
+These commands are in this repository and do not need an Unreal install:
+
+```sh
+./verify.sh
+node validate-plugin.mjs
+python3 -m unittest discover -s ci -p 'test_*.py'
 ```
 
-Skips loudly without a C++ compiler.
+`./verify.sh` compiles and runs `protocol_test.cpp`. It skips, and exits 0,
+when no C++ compiler is on `PATH`. `node validate-plugin.mjs` checks the plugin
+descriptor and build rules. Neither command loads the plugin in an editor.
+
+With a pinned engine installed, build the host and run its automation:
+
+```sh
+python3 ci/run.py            # the primary engine
+python3 ci/run.py 5.6.1      # one named engine
+python3 ci/run.py all        # every engine in ci/engines.json
+```
+
+`.github/workflows/build.yml` runs the three engine-free commands on pull
+requests and on `v*` tags. `.github/workflows/release.yml` publishes the source
+bundle and prebuilt Linux plugins when a `v*` tag is pushed. See
+[host/README.md](host/README.md) for the engine matrix.
 
 ## Conformance
 
-`conformance_test.cpp` executes the published `gaming/v0` suite against the real
-`cmd/wsfixture`, driven by `scripts/check-unreal-conformance.py` and wired into
-`make check` through `check-unreal`. It drives `Haiven::FSessionCore` — the same
-core `HaivenNetworking.cpp` drives — rather than a raw socket, because the
-question is whether the binding can be driven by the step vocabulary, not
-whether the server answers; the node and dotnet runners already answer that from
-a bare transcript client.
+`conformance_test.cpp` is the engine-free `gaming/v0` runner. It drives
+`Haiven::FSessionCore` — the same core `HaivenNetworking.cpp` drives — rather
+than a raw socket, because the question is whether the binding can be driven by
+the step vocabulary, not whether the server answers; the node and dotnet
+runners already answer that from a bare transcript client. `./verify.sh` does
+not compile this file. The harness that started `cmd/wsfixture` and checked the
+scenario count is not in this repository, so this file is not a standalone
+check here.
 
 `gaming/v0/profiles/unreal.yaml` names `runner: unreal-automation` and requires
 `engine-independent-protocol-core`. That second requirement is what runs here.
@@ -146,13 +166,14 @@ drives.
 `WriteClientFrame` special-cases `auth` and the runner restates it; serializing
 uniformly authenticates nobody and reads as a server rejecting valid tokens.
 
-Two guards, both proven non-vacuous. `check-unreal-conformance.py` recomputes
+Two guards, both proven non-vacuous when that harness is present. It recomputes
 the expected scenario count from the suite document rather than trusting the
 runner's self-report: making the runner also claim `deployment` drops it to a
 green 2-scenario run, and the stage fails on the count instead of accepting it.
 And the stage skips loudly — no compiler, no vendored suite, no backend checkout
 and no Go each name themselves, because a suite whose absence is
-indistinguishable from its success is not a suite.
+indistinguishable from its success is not a suite. That harness is not in this
+repository.
 
 Network-adapter execution *through the engine* remains the open case: `host/`
 builds and ticks under both pinned engines but has never contacted a live

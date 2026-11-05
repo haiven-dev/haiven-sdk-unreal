@@ -5,13 +5,13 @@ One codebase, several engines. `engines.json` carries a matrix rather than a
 single pin, and every version-specific value that would otherwise be baked into
 a tracked file lives there: the toolchain directory, the compiler version, the
 `EngineAssociation` stamped into the staged host, and the runner label CI selects
-on. Nothing under `unreal/Haiven` or `unreal/host` names a version.
+on. Nothing under `Haiven/` or `host/` names a version.
 
 Usage:
 
-    python3 unreal/ci/run.py            # the primary engine
-    python3 unreal/ci/run.py 5.6.1      # one named engine
-    python3 unreal/ci/run.py all        # every engine in the matrix, in order
+    python3 ci/run.py            # the primary engine
+    python3 ci/run.py 5.6.1      # one named engine
+    python3 ci/run.py all        # every engine in the matrix, in order
 
 `HAIVEN_UNREAL_VERSION` is the environment equivalent of the argument.
 """

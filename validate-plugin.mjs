@@ -13,7 +13,7 @@
 // This is not a substitute for loading the plugin in an editor. See README.md
 // for what remains unverified.
 //
-//   node unreal/validate-plugin.mjs
+//   node validate-plugin.mjs
 
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
@@ -134,4 +134,4 @@ if (problems.length > 0) {
 }
 
 console.error("Haiven.uplugin: descriptor and build rules valid")
-console.error("NOT a substitute for loading the plugin in an editor — see unreal/README.md")
+console.error("NOT a substitute for loading the plugin in an editor — see README.md")
