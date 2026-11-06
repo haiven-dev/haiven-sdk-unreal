@@ -12,12 +12,34 @@
     "Haiven.Auth.CallbackGuardsAndForm",
     "Haiven.Auth.ReplayExpiryCancellation",
     "Haiven.Auth.CredentialLifetime",
+    "Haiven.Auth.LoopbackRedirect",
+    "Haiven.Auth.LoopbackLogin",
     "Haiven.Session.AuthQueueReauth",
-    "Haiven.Client.ReflectedSurface"
+    "Haiven.Realtime.Reconnect",
+    "Haiven.Rest.RequestBuilders",
+    "Haiven.Ws.FrameBuilders",
+    "Haiven.Contracts.Generated",
+    "Haiven.Contracts.Blueprint",
+    "Haiven.Blueprint.Operations",
+    "Haiven.Blueprint.RestTypes",
+    "Haiven.Chat.Bridge",
+    "Haiven.Rewards.Bridge",
+    "Haiven.Analytics.Bridge",
+    "Haiven.Credentials.Boundary",
+    "Haiven.Identity.Bridge",
+    "Haiven.Identity.MotdOrdering",
+    "Haiven.Client.ReflectedSurface",
+    "Haiven.Diagnostics.Health",
+    "Haiven.Diagnostics.EditorPanel",
+    "Haiven.Conformance.Client"
   ],
   "engines": [
     {
-      "version": [5, 8, 2],
+      "version": [
+        5,
+        8,
+        2
+      ],
       "association": "5.8",
       "toolchain": "v26_clang-20.1.8-rockylinux8",
       "clangVersion": "20.1.8",
@@ -26,7 +48,11 @@
       "runnerLabel": "unreal-5.8.2-clang20"
     },
     {
-      "version": [5, 6, 1],
+      "version": [
+        5,
+        6,
+        1
+      ],
       "association": "5.6",
       "toolchain": "v25_clang-18.1.0-rockylinux8",
       "clangVersion": "18.1.0rc",

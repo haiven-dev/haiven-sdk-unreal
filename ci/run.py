@@ -111,6 +111,9 @@ def stage(engine, into):
     ignore = shutil.ignore_patterns("Binaries", "Intermediate", "Saved", "DerivedDataCache", "Plugins")
     shutil.copytree(HERE.parent / "host", project, ignore=ignore)
     shutil.copytree(HERE.parent / "Haiven", project / "Plugins/Haiven", ignore=ignore)
+    fixture = project / "Content/HaivenTestFixtures/gaming-client-v0.json"
+    fixture.parent.mkdir(parents=True)
+    shutil.copy2(SDK / "conformance/gaming-client/v0/generated/suite.json", fixture)
     # EngineAssociation is the one host field that cannot be version-agnostic:
     # it is a single value and the editor uses it to pick an engine. The plugin
     # descriptor deliberately declares no EngineVersion and is copied unchanged.
