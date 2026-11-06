@@ -1,150 +1,88 @@
+// The engine face of the game login handoff. Every rule lives in the C++ SDK's
+// `Haiven::Handoff::FCore`, which `sdks/cpp/test/handoff_test.cpp` checks under an
+// ordinary compiler; this file only converts engine strings, byte views and
+// `FDateTime` to and from it. `FDateTime` ticks are the core's `FTicks`, so time
+// converts exactly.
 #include "HaivenHandoff.h"
 
-#include "Dom/JsonObject.h"
-#include "GenericPlatform/GenericPlatformHttp.h"
-#include "Misc/Base64.h"
-#include "Serialization/JsonReader.h"
-#include "Serialization/JsonSerializer.h"
-
-#define UI UI_ST
-THIRD_PARTY_INCLUDES_START
-#include <openssl/sha.h>
-THIRD_PARTY_INCLUDES_END
-#undef UI
+#include <string>
+#include <vector>
 
 namespace
 {
-	FString Base64Url(TConstArrayView<uint8> Bytes)
+	std::string ToUtf8(const FString& Value)
 	{
-		FString Value = FBase64::Encode(Bytes.GetData(), Bytes.Num());
-		Value.ReplaceInline(TEXT("+"), TEXT("-"));
-		Value.ReplaceInline(TEXT("/"), TEXT("_"));
-		while (Value.EndsWith(TEXT("="))) Value.LeftChopInline(1);
-		return Value;
+		FTCHARToUTF8 Converted(*Value);
+		return std::string(Converted.Get(), Converted.Length());
 	}
 
-	struct FParsedUrl
+	FString FromUtf8(const std::string& Value)
 	{
-		FString Scheme;
-		FString Authority;
-		FString Path;
-		TMap<FString, FString> Query;
-	};
-
-	bool ParseQuery(const FString& Text, TMap<FString, FString>& Out)
-	{
-		TArray<FString> Fields;
-		Text.ParseIntoArray(Fields, TEXT("&"), true);
-		for (const FString& Field : Fields)
-		{
-			FString Key;
-			FString Value;
-			if (!Field.Split(TEXT("="), &Key, &Value))
-			{
-				Key = Field;
-			}
-			Key = FGenericPlatformHttp::UrlDecode(Key.Replace(TEXT("+"), TEXT(" ")));
-			Value = FGenericPlatformHttp::UrlDecode(Value.Replace(TEXT("+"), TEXT(" ")));
-			if (Key.IsEmpty() || Out.Contains(Key)) return false;
-			Out.Add(MoveTemp(Key), MoveTemp(Value));
-		}
-		return true;
+		return FString(UTF8_TO_TCHAR(Value.c_str()));
 	}
 
-	bool ParseAbsoluteUrl(const FString& Url, FParsedUrl& Out)
+	Haiven::Handoff::FTicks Ticks(const FDateTime& Value)
 	{
-		if (Url.Contains(TEXT("#"))) return false;
-		int32 SchemeEnd = INDEX_NONE;
-		if (!Url.FindChar(TEXT(':'), SchemeEnd) || SchemeEnd <= 0) return false;
-		Out.Scheme = Url.Left(SchemeEnd).ToLower();
-		int32 Cursor = SchemeEnd + 1;
-		if (Url.Mid(Cursor, 2) == TEXT("//"))
-		{
-			Cursor += 2;
-			int32 AuthorityEnd = Url.Len();
-			for (const TCHAR Separator : {TEXT('/'), TEXT('?')})
-			{
-				const int32 Found = Url.Find(FString::Chr(Separator), ESearchCase::CaseSensitive, ESearchDir::FromStart, Cursor);
-				if (Found != INDEX_NONE) AuthorityEnd = FMath::Min(AuthorityEnd, Found);
-			}
-			Out.Authority = Url.Mid(Cursor, AuthorityEnd - Cursor).ToLower();
-			if (Out.Authority.IsEmpty()) return false;
-			Cursor = AuthorityEnd;
-		}
-
-		const int32 QueryStart = Url.Find(TEXT("?"), ESearchCase::CaseSensitive, ESearchDir::FromStart, Cursor);
-		const int32 PathEnd = QueryStart == INDEX_NONE ? Url.Len() : QueryStart;
-		Out.Path = Url.Mid(Cursor, PathEnd - Cursor);
-		if (Out.Path.IsEmpty()) Out.Path = TEXT("/");
-		return QueryStart == INDEX_NONE || ParseQuery(Url.Mid(QueryStart + 1), Out.Query);
+		return Haiven::Handoff::FTicks(Value.GetTicks());
 	}
 
-	FString Encode(const FString& Value)
+	std::vector<std::uint8_t> Bytes(TConstArrayView<uint8> View)
 	{
-		return FGenericPlatformHttp::UrlEncode(Value);
+		return std::vector<std::uint8_t>(View.GetData(), View.GetData() + View.Num());
 	}
 
-	FString BuildAuthorizationUrl(const Haiven::FHandoffConfig& Config, const FString& State, const FString& Challenge)
+	/// The entropy copies are the state and verifier in waiting; clear them.
+	void Wipe(std::vector<std::uint8_t>& Value)
 	{
-		FParsedUrl Entry;
-		ParseAbsoluteUrl(Config.EntryUrl, Entry);
-		Entry.Query.Add(TEXT("integration_id"), Config.IntegrationId);
-		Entry.Query.Add(TEXT("completion"), TEXT("redirect"));
-		Entry.Query.Add(TEXT("redirect_uri"), Config.RedirectUrl);
-		Entry.Query.Add(TEXT("state"), State);
-		Entry.Query.Add(TEXT("code_challenge"), Challenge);
-		Entry.Query.Add(TEXT("code_challenge_method"), TEXT("S256"));
-		if (!Config.InstructionsId.IsEmpty()) Entry.Query.Add(TEXT("instructions_id"), Config.InstructionsId);
-		if (!Config.ScreenHint.IsEmpty()) Entry.Query.Add(TEXT("screen_hint"), Config.ScreenHint);
-
-		FString Result = Config.EntryUrl;
-		int32 ExistingQuery = INDEX_NONE;
-		if (Result.FindChar(TEXT('?'), ExistingQuery)) Result.LeftInline(ExistingQuery);
-		FString Separator = TEXT("?");
-		for (const TPair<FString, FString>& Pair : Entry.Query)
-		{
-			Result += Separator + Encode(Pair.Key) + TEXT("=") + Encode(Pair.Value);
-			Separator = TEXT("&");
-		}
-		return Result;
+		volatile std::uint8_t* Data = Value.data();
+		for (std::size_t Index = 0; Index < Value.size(); ++Index) Data[Index] = 0;
+		Value.clear();
 	}
 
-	void SecureReset(FString& Value)
+	Haiven::FHandoffCredential ToEngine(const Haiven::Handoff::FCredential& Credential)
 	{
-		if (Value.GetCharArray().Num() > 0)
-		{
-			FMemory::Memzero(Value.GetCharArray().GetData(), Value.GetCharArray().Num() * sizeof(TCHAR));
-		}
-		Value.Reset();
+		Haiven::FHandoffCredential Engine;
+		Engine.AccessToken = FromUtf8(Credential.AccessToken);
+		Engine.TokenType = FromUtf8(Credential.TokenType);
+		Engine.bHasExpiry = Credential.bHasExpiry;
+		Engine.ExpiresAt = Credential.bHasExpiry ? FDateTime(Credential.ExpiresAt.count()) : FDateTime();
+		return Engine;
 	}
 
-	bool IsSecureWebUrl(const FParsedUrl& Url)
+	Haiven::Handoff::FCredential ToCore(const Haiven::FHandoffCredential& Credential)
 	{
-		const bool bLoopback = Url.Authority == TEXT("localhost")
-			|| Url.Authority.StartsWith(TEXT("localhost:"))
-			|| Url.Authority == TEXT("127.0.0.1")
-			|| Url.Authority.StartsWith(TEXT("127.0.0.1:"))
-			|| Url.Authority == TEXT("[::1]")
-			|| Url.Authority.StartsWith(TEXT("[::1]:"));
-		return Url.Scheme == TEXT("https")
-			|| (Url.Scheme == TEXT("http") && bLoopback);
+		Haiven::Handoff::FCredential Core;
+		Core.AccessToken = ToUtf8(Credential.AccessToken);
+		Core.TokenType = ToUtf8(Credential.TokenType);
+		Core.bHasExpiry = Credential.bHasExpiry;
+		Core.ExpiresAt = Credential.bHasExpiry ? Ticks(Credential.ExpiresAt) : Haiven::Handoff::FTicks::zero();
+		return Core;
+	}
+
+	Haiven::Handoff::FConfig ToCore(const Haiven::FHandoffConfig& Config)
+	{
+		Haiven::Handoff::FConfig Core;
+		Core.EntryUrl = ToUtf8(Config.EntryUrl);
+		Core.ExchangeUrl = ToUtf8(Config.ExchangeUrl);
+		Core.IntegrationId = ToUtf8(Config.IntegrationId);
+		Core.RedirectUrl = ToUtf8(Config.RedirectUrl);
+		Core.InstructionsId = ToUtf8(Config.InstructionsId);
+		Core.ScreenHint = ToUtf8(Config.ScreenHint);
+		Core.TransactionLifetime = Haiven::Handoff::FTicks(Config.TransactionLifetime.GetTicks());
+		return Core;
 	}
 }
 
 namespace Haiven
 {
-	FHandoffCore::~FHandoffCore()
-	{
-		Cancel();
-		ClearCredential();
-	}
-
 	FString FHandoffExchange::ToFormBody() const
 	{
-		return TEXT("code=") + Encode(Code)
-			+ TEXT("&code_verifier=") + Encode(CodeVerifier)
-			+ TEXT("&integration_id=") + Encode(IntegrationId)
-			+ TEXT("&redirect_uri=") + Encode(RedirectUrl);
+		Handoff::FExchange Exchange;
+		Exchange.Code = ToUtf8(Code);
+		Exchange.CodeVerifier = ToUtf8(CodeVerifier);
+		Exchange.IntegrationId = ToUtf8(IntegrationId);
+		Exchange.RedirectUrl = ToUtf8(RedirectUrl);
+		return FromUtf8(Exchange.ToFormBody());
 	}
 
 	bool FHandoffCore::Begin(
@@ -156,37 +94,21 @@ namespace Haiven
 		FString& OutState,
 		FString& OutError)
 	{
-		FParsedUrl Entry;
-		FParsedUrl Exchange;
-		FParsedUrl Redirect;
-		if (!ParseAbsoluteUrl(Config.EntryUrl, Entry) || !IsSecureWebUrl(Entry))
+		std::vector<std::uint8_t> State = Bytes(StateEntropy);
+		std::vector<std::uint8_t> Verifier = Bytes(VerifierEntropy);
+		std::string Url;
+		std::string StateText;
+		std::string Error;
+		const bool bBegan = Core.Begin(ToCore(Config), State, Verifier, Ticks(Now), Url, StateText, Error);
+		Wipe(State);
+		Wipe(Verifier);
+		if (!bBegan)
 		{
-			OutError = TEXT("The handoff entry URL must use HTTPS (loopback HTTP is allowed for development).");
+			OutError = FromUtf8(Error);
 			return false;
 		}
-		if (!ParseAbsoluteUrl(Config.ExchangeUrl, Exchange) || !IsSecureWebUrl(Exchange))
-		{
-			OutError = TEXT("The handoff exchange URL must use HTTPS (loopback HTTP is allowed for development).");
-			return false;
-		}
-		if (!ParseAbsoluteUrl(Config.RedirectUrl, Redirect) || Config.IntegrationId.IsEmpty())
-		{
-			OutError = TEXT("An integration id and absolute fragment-free redirect URL are required.");
-			return false;
-		}
-		if (Config.TransactionLifetime <= FTimespan::Zero() || StateEntropy.Num() != 32 || VerifierEntropy.Num() != 32)
-		{
-			OutError = TEXT("The transaction lifetime and 256-bit state/verifier entropy are required.");
-			return false;
-		}
-
-		Cancel();
-		ActiveConfig = Config;
-		ActiveState = Base64Url(StateEntropy);
-		ActiveVerifier = Base64Url(VerifierEntropy);
-		CreatedAt = Now;
-		OutState = ActiveState;
-		OutAuthorizationUrl = BuildAuthorizationUrl(Config, ActiveState, PkceChallenge(ActiveVerifier));
+		OutAuthorizationUrl = FromUtf8(Url);
+		OutState = FromUtf8(StateText);
 		return true;
 	}
 
@@ -196,78 +118,29 @@ namespace Haiven
 		FHandoffExchange& OutExchange,
 		FString& OutError)
 	{
-		if (ActiveState.IsEmpty())
+		Handoff::FExchange Exchange;
+		std::string Error;
+		if (!Core.ConsumeCallback(ToUtf8(CallbackUrl), Ticks(Now), Exchange, Error))
 		{
-			OutError = TEXT("The handoff state is unknown, expired, cancelled, or already consumed.");
+			OutError = FromUtf8(Error);
 			return false;
 		}
-
-		FParsedUrl Expected;
-		FParsedUrl Callback;
-		if (!ParseAbsoluteUrl(ActiveConfig.RedirectUrl, Expected)
-			|| !ParseAbsoluteUrl(CallbackUrl, Callback)
-			|| Expected.Scheme != Callback.Scheme
-			|| Expected.Authority != Callback.Authority
-			|| Expected.Path != Callback.Path)
-		{
-			OutError = TEXT("The handoff callback does not match the configured redirect URL.");
-			return false;
-		}
-		for (const TPair<FString, FString>& Pair : Expected.Query)
-		{
-			const FString* Value = Callback.Query.Find(Pair.Key);
-			if (Value == nullptr || *Value != Pair.Value)
-			{
-				OutError = TEXT("The handoff callback does not preserve the configured redirect query.");
-				return false;
-			}
-		}
-
-		const FString* State = Callback.Query.Find(TEXT("state"));
-		if (State == nullptr || *State != ActiveState)
-		{
-			OutError = TEXT("The handoff callback state is missing or does not match.");
-			return false;
-		}
-
-		const FString VerifierToConsume = MoveTemp(ActiveVerifier);
-		SecureReset(ActiveState);
-		SecureReset(ActiveVerifier);
-
-		if (const FString* Error = Callback.Query.Find(TEXT("error")); Error != nullptr && !Error->IsEmpty())
-		{
-			OutError = TEXT("The handoff callback failed: ") + *Error;
-			return false;
-		}
-		const FString* Code = Callback.Query.Find(TEXT("code"));
-		if (Code == nullptr || Code->IsEmpty())
-		{
-			OutError = TEXT("The handoff callback has no code.");
-			return false;
-		}
-		if (Now - CreatedAt > ActiveConfig.TransactionLifetime)
-		{
-			OutError = TEXT("The handoff transaction has expired.");
-			return false;
-		}
-
-		OutExchange.ExchangeUrl = ActiveConfig.ExchangeUrl;
-		OutExchange.Code = *Code;
-		OutExchange.CodeVerifier = VerifierToConsume;
-		OutExchange.IntegrationId = ActiveConfig.IntegrationId;
-		OutExchange.RedirectUrl = ActiveConfig.RedirectUrl;
+		OutExchange.ExchangeUrl = FromUtf8(Exchange.ExchangeUrl);
+		OutExchange.Code = FromUtf8(Exchange.Code);
+		OutExchange.CodeVerifier = FromUtf8(Exchange.CodeVerifier);
+		OutExchange.IntegrationId = FromUtf8(Exchange.IntegrationId);
+		OutExchange.RedirectUrl = FromUtf8(Exchange.RedirectUrl);
 		return true;
 	}
 
 	void FHandoffCore::Cancel()
 	{
-		SecureReset(ActiveState);
-		SecureReset(ActiveVerifier);
+		Core.Cancel();
 	}
 
 	bool FHandoffCore::HasPendingTransaction() const
 	{
-		return !ActiveState.IsEmpty();
+		return Core.HasPendingTransaction();
 	}
 
 	bool FHandoffCore::StoreExchangeResponse(
@@ -276,58 +149,92 @@ namespace Haiven
 		FHandoffCredential& OutCredential,
 		FString& OutError)
 	{
-		TSharedPtr<FJsonObject> Object;
-		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
-		if (!FJsonSerializer::Deserialize(Reader, Object) || !Object.IsValid())
+		Handoff::FCredential Credential;
+		std::string Error;
+		if (!Core.StoreExchangeResponse(ToUtf8(Json), Ticks(Now), Credential, Error))
 		{
-			OutError = TEXT("The handoff exchange returned invalid JSON.");
+			OutError = FromUtf8(Error);
 			return false;
 		}
-		if (Object->HasField(TEXT("refresh_token")))
-		{
-			OutError = TEXT("The handoff exchange returned a forbidden refresh credential.");
-			return false;
-		}
-		FString AccessToken;
-		FString TokenType;
-		double ExpiresIn = -1.0;
-		if (!Object->TryGetStringField(TEXT("access_token"), AccessToken)
-			|| !Object->TryGetStringField(TEXT("token_type"), TokenType)
-			|| !Object->TryGetNumberField(TEXT("expires_in"), ExpiresIn)
-			|| AccessToken.IsEmpty() || TokenType.IsEmpty() || ExpiresIn < 0.0)
-		{
-			OutError = TEXT("The handoff exchange returned an invalid credential.");
-			return false;
-		}
-
-		ClearCredential();
-		OutCredential = {AccessToken, TokenType, Now + FTimespan::FromSeconds(ExpiresIn)};
-		Credential = OutCredential;
+		OutCredential = ToEngine(Credential);
 		return true;
 	}
 
 	bool FHandoffCore::GetAccessToken(const FDateTime& Now, FString& OutAccessToken) const
 	{
-		if (!Credential.IsSet() || Credential->AccessToken.IsEmpty() || Now >= Credential->ExpiresAt) return false;
-		OutAccessToken = Credential->AccessToken;
+		std::string Token;
+		if (!Core.GetAccessToken(Ticks(Now), Token)) return false;
+		OutAccessToken = FromUtf8(Token);
 		return true;
 	}
 
 	void FHandoffCore::ClearCredential()
 	{
-		if (Credential.IsSet())
+		Core.ClearCredential();
+	}
+
+	void FHandoffCore::SetCredentialStore(TSharedPtr<IHandoffCredentialStore> Store)
+	{
+		StoreBridge.Target = MoveTemp(Store);
+		Core.SetCredentialStore(StoreBridge.Target.IsValid() ? &StoreBridge : nullptr);
+	}
+
+	bool FHandoffCore::Resume(const FDateTime& Now, FHandoffCredential& OutCredential)
+	{
+		Handoff::FCredential Credential;
+		if (!Core.Resume(Ticks(Now), Credential)) return false;
+		OutCredential = ToEngine(Credential);
+		return true;
+	}
+
+	bool FHandoffCore::FStoreBridge::Load(Handoff::FCredential& OutCredential)
+	{
+		FHandoffCredential Saved;
+		if (!Target.IsValid() || !Target->Load(Saved)) return false;
+		OutCredential = ToCore(Saved);
+		return true;
+	}
+
+	void FHandoffCore::FStoreBridge::Store(const Handoff::FCredential& Credential)
+	{
+		if (Target.IsValid()) Target->Store(ToEngine(Credential));
+	}
+
+	void FHandoffCore::FStoreBridge::Clear()
+	{
+		if (Target.IsValid()) Target->Clear();
+	}
+
+	bool FHandoffCore::Restart(
+		Handoff::ECredentialEndReason Reason,
+		const FHandoffConfig& Config,
+		TConstArrayView<uint8> StateEntropy,
+		TConstArrayView<uint8> VerifierEntropy,
+		const FDateTime& Now,
+		FString& OutAuthorizationUrl,
+		FString& OutState,
+		FString& OutError)
+	{
+		std::vector<std::uint8_t> State = Bytes(StateEntropy);
+		std::vector<std::uint8_t> Verifier = Bytes(VerifierEntropy);
+		std::string Url;
+		std::string StateText;
+		std::string Error;
+		const bool bBegan = Core.Restart(Reason, ToCore(Config), State, Verifier, Ticks(Now), Url, StateText, Error);
+		Wipe(State);
+		Wipe(Verifier);
+		if (!bBegan)
 		{
-			SecureReset(Credential->AccessToken);
-			SecureReset(Credential->TokenType);
+			OutError = FromUtf8(Error);
+			return false;
 		}
-		Credential.Reset();
+		OutAuthorizationUrl = FromUtf8(Url);
+		OutState = FromUtf8(StateText);
+		return true;
 	}
 
 	FString FHandoffCore::PkceChallenge(const FString& Verifier)
 	{
-		FTCHARToUTF8 Utf8(*Verifier);
-		uint8 Signature[SHA256_DIGEST_LENGTH];
-		if (SHA256(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length(), Signature) == nullptr) return FString();
-		return Base64Url(MakeArrayView(Signature, UE_ARRAY_COUNT(Signature)));
+		return FromUtf8(Handoff::PkceChallenge(ToUtf8(Verifier)));
 	}
 }

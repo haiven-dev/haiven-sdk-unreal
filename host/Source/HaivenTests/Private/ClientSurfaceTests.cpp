@@ -29,6 +29,12 @@ bool FHaivenClientSurface::RunTest(const FString& Parameters)
 		UHaivenConnectRealtimeAsyncAction::StaticClass()->FindFunctionByName(TEXT("ConnectRealtime")));
 	TestNotNull(TEXT("realtime factory is reflected"),
 		UHaivenRealtimeRequestAsyncAction::StaticClass()->FindFunctionByName(TEXT("RealtimeRequest")));
+	TestNotNull(TEXT("Blueprint loopback login entry point"), Subsystem->FindFunctionByName(TEXT("BeginLoopbackGameLogin")));
+	TestNotNull(TEXT("Blueprint login progress query"), Subsystem->FindFunctionByName(TEXT("IsGameLoginInProgress")));
+	TestTrue(TEXT("Sign In With Haiven is an async Blueprint node"),
+		UHaivenSignInAsyncAction::StaticClass()->IsChildOf(UBlueprintAsyncActionBase::StaticClass()));
+	TestNotNull(TEXT("sign-in factory is reflected"),
+		UHaivenSignInAsyncAction::StaticClass()->FindFunctionByName(TEXT("SignInWithHaiven")));
 	return true;
 }
 #endif

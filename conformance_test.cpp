@@ -31,8 +31,8 @@
 // engines; what it has never done is contact a live fixture, which
 // `README.md` records as the open engine-integration case.
 
-#include "Haiven/Source/Haiven/Public/HaivenProtocol.h"
-#include "Haiven/Source/Haiven/Public/HaivenSessionCore.h"
+#include "Haiven/Source/ThirdParty/HaivenCpp/include/HaivenProtocol.h"
+#include "Haiven/Source/ThirdParty/HaivenCpp/include/HaivenSessionCore.h"
 #include "conformance/Json.h"
 #include "conformance/Transport.h"
 
