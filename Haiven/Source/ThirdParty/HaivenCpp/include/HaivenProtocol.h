@@ -9,9 +9,10 @@
 // until someone opens it in an editor nobody here has.
 //
 // So the protocol core takes no engine dependency and is compiled and exercised
-// by `verify.sh` under an ordinary compiler. The engine glue —
-// subsystem, IWebSocket, Blueprint nodes — stays in Private/ where it belongs
-// and is explicitly NOT verified here.
+// by `sdks/cpp/verify.sh` under an ordinary compiler. It is the C++ SDK, which the
+// Unreal plugin vendors; the engine glue — subsystem, IWebSocket, Blueprint
+// nodes — stays in the plugin where it belongs and is explicitly NOT verified
+// here.
 //
 // The cost is real and worth stating rather than hiding: `std::optional` and
 // `std::string` are unidiomatic in an Unreal module, and every value crossing
@@ -23,12 +24,25 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 namespace Haiven
 {
 	inline constexpr const char* AuthType = "auth";
 	inline constexpr const char* AuthSuccessType = "auth.success";
 	inline constexpr const char* AuthExpiredType = "auth.expired";
+	inline constexpr const char* AuthFailureType = "auth.failure";
+	inline constexpr const char* AuthExpiredDroppedType = "auth.expired.dropped";
+
+	/// The correlated half of an `auth.expired.dropped` report
+	/// (`schemas/ws-dropped-frames`): the replies the server discarded while the
+	/// session was expired. When `bTruncated` is set the list is a sample, and
+	/// every request still unanswered has to be treated as lost.
+	struct FDroppedFrames
+	{
+		std::vector<std::string> RequestIds;
+		bool bTruncated = false;
+	};
 
 	/// One frame the server sent, after parsing and before interpretation.
 	///
@@ -51,6 +65,9 @@ namespace Haiven
 		std::optional<bool> Success;
 		std::optional<std::string> Error;
 		bool bHasPayload = false;
+		/// Set by the parser for `auth.expired.dropped`, the one frame whose payload
+		/// the session core itself acts on.
+		std::optional<FDroppedFrames> Dropped;
 	};
 
 	// The finding, encoded so it cannot be quietly undone. Narrowing Success to
@@ -60,7 +77,7 @@ namespace Haiven
 	static_assert(
 		!std::is_same_v<decltype(FServerFrame::Success), bool>,
 		"Success must be able to hold absent: an event omits the field, and a bool maps that to false, "
-		"which classifies every event as a failed reply. See sdk-spike/docs/findings.md F10.");
+		"which classifies every event as a failed reply. See haiven-sdk/docs/findings.md F10.");
 
 	/// Whether a frame answers something this client sent.
 	///

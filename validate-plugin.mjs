@@ -110,20 +110,96 @@ for (const file of readdirSync(rules).filter((f) => f.endsWith(".Target.cs"))) {
 // a refactor from quietly dropping one of the promised integration surfaces.
 const runtimeSource = join(PLUGIN, "Source", "Haiven")
 const networkingPath = join(runtimeSource, "Private", "HaivenNetworking.cpp")
+const subsystemPath = join(runtimeSource, "Private", "HaivenSubsystem.cpp")
+const subsystemHeaderPath = join(runtimeSource, "Public", "HaivenSubsystem.h")
+const identityPath = join(runtimeSource, "Private", "HaivenIdentitySubsystem.cpp")
 const actionsPath = join(runtimeSource, "Public", "HaivenAsyncActions.h")
-const sessionPath = join(runtimeSource, "Public", "HaivenSessionCore.h")
-for (const path of [networkingPath, actionsPath, sessionPath]) {
+const vendoredCpp = join(PLUGIN, "Source", "ThirdParty", "HaivenCpp")
+const sessionPath = join(vendoredCpp, "include", "HaivenSessionCore.h")
+for (const path of [networkingPath, subsystemPath, subsystemHeaderPath, identityPath, actionsPath, sessionPath]) {
 	check(existsSync(path), `missing runtime SDK surface: ${path.slice(PLUGIN.length + 1)}`)
+}
+// The engine-free core is the C++ SDK, vendored as an External module. A
+// module UnrealBuildTool cannot classify, or a runtime module that stops
+// depending on it publicly, fails in the editor with an include error far from
+// the cause; both are layout facts checkable here. The copy matching sdks/cpp
+// is `make check-cpp-vendor`'s job.
+const vendoredRules = join(vendoredCpp, "HaivenCpp.Build.cs")
+check(existsSync(vendoredRules), "missing the vendored C++ SDK module: Source/ThirdParty/HaivenCpp/HaivenCpp.Build.cs")
+if (existsSync(vendoredRules)) {
+	const build = readFileSync(vendoredRules, "utf8")
+	check(/class\s+HaivenCpp\s*:\s*ModuleRules/.test(build), 'HaivenCpp.Build.cs does not declare "class HaivenCpp : ModuleRules"')
+	check(/Type\s*=\s*ModuleType\.External/.test(build), "HaivenCpp must be an External (header-only) module")
+}
+const runtimeRules = join(runtimeSource, "Haiven.Build.cs")
+if (existsSync(runtimeRules)) {
+	const build = readFileSync(runtimeRules, "utf8")
+	check(/PublicDependencyModuleNames[\s\S]{0,400}"HaivenCpp"/.test(build), "Haiven must depend publicly on HaivenCpp, or its public headers do not compile in a game module")
 }
 if (existsSync(networkingPath)) {
 	const source = readFileSync(networkingPath, "utf8")
 	check(source.includes("FHttpModule::Get()"), "runtime client does not use FHttpModule")
 	check(source.includes("FWebSocketsModule::Get().CreateWebSocket"), "runtime client does not create an IWebSocket transport")
 	check(source.includes("DispatchToGameThread"), "runtime callbacks have no game-thread dispatch boundary")
+	check(/SetAccessToken[\s\S]{0,1000}InvalidateCredentialBoundary\(\)/.test(source),
+		"credential replacement does not invalidate account-scoped state")
+	const refresh = source.match(/void UHaivenSubsystem::RefreshAccessToken[\s\S]{0,900}/)?.[0] ?? ""
+	check(refresh.includes("HostAccessToken = AccessToken")
+		&& !refresh.includes("InvalidateCredentialBoundary()")
+		&& !refresh.includes("DisconnectRealtime()"),
+		"same-account token refresh tears down account or realtime state")
+	check(source.includes("Pending.CredentialGeneration = CredentialGeneration") && source.includes("Pending.bAuthenticated = bAuthenticated"),
+		"HTTP requests are not bound to their credential generation")
+	check(source.includes("RequestCredentialGeneration != CredentialGeneration"),
+		"stale authenticated HTTP completions are not suppressed")
+	check(source.includes("OnProcessRequestComplete().Unbind()") && source.includes("Stale.Request->CancelRequest()"),
+		"credential invalidation does not detach and cancel authenticated HTTP transports")
+	check(source.includes("TUniquePtr<Haiven::FSessionCore> Session = MoveTemp(RealtimeSession)"),
+		"realtime teardown does not detach the old session before invoking close callbacks")
+	check(source.includes("bRealtimeTeardown") && source.includes("RunDeferredRealtimeConnect"),
+		"realtime reconnects are not deferred across teardown callbacks")
+	for (const teardown of ["DisconnectRealtime", "HandleSocketError", "HandleSocketClosed"]) {
+		const body = source.match(new RegExp(`void UHaivenSubsystem::${teardown}\\([\\s\\S]{0,1200}`))?.[0] ?? ""
+		check(body.includes("RetireRealtimeSession(MoveTemp(Session))"),
+			`${teardown} frees a realtime session whose callback may still be on the stack`)
+	}
+	check(source.includes("WeakThis->RealtimeGeneration == Generation) WeakThis->WriteClientFrame(Frame)"),
+		"a retired realtime session can write to a newer socket")
+}
+if (existsSync(subsystemPath)) {
+	const source = readFileSync(subsystemPath, "utf8")
+	check(/void UHaivenSubsystem::Logout[\s\S]{0,1000}InvalidateCredentialBoundary\(\)/.test(source),
+		"logout does not invalidate account-scoped state")
+	check(/void UHaivenSubsystem::FinishExchange[\s\S]{0,2200}InvalidateCredentialBoundary\(\)/.test(source),
+		"successful handoff does not invalidate account-scoped state")
+	const boundary = source.match(/void UHaivenSubsystem::InvalidateCredentialBoundary[\s\S]{0,1800}/)?.[0] ?? ""
+	check(boundary.includes("InvalidateAuthenticatedHttpRequests()")
+		&& boundary.includes("DisconnectRealtime()")
+		&& boundary.includes("Identity->ResetAccount()")
+		&& boundary.includes("ResetChat()")
+		&& boundary.includes("Rewards->Clear()")
+		&& boundary.includes("Instance->Shutdown()"),
+		"credential boundary does not invalidate realtime, identity, chat, rewards, and analytics")
+}
+if (existsSync(subsystemHeaderPath)) {
+	const source = readFileSync(subsystemHeaderPath, "utf8")
+	check(source.includes("uint64 CredentialGeneration") && source.includes("bool bAuthenticated"),
+		"pending HTTP metadata does not track authentication and credential generation")
+}
+if (existsSync(identityPath)) {
+	const source = readFileSync(identityPath, "utf8")
+	check(source.includes("BroadcastIdentityDiagnosticOnGameThread"),
+		"identity diagnostics have no game-thread dispatch boundary")
+	check(source.includes("if (!IsInGameThread())"),
+		"identity Blueprint and browser adapter calls have no game-thread guard")
+	check(source.includes("AsyncTask(ENamedThreads::GameThread"),
+		"identity cancellation and browser cleanup have no game-thread deferral")
+	check(/UnlinkIdentity[\s\S]{0,1400}BeginAccountMutation\(\)[\s\S]{0,1400}InvalidateSignInMethodsReads\(\)[\s\S]{0,200}RefreshSignInMethods\(\)/.test(source),
+		"identity unlink is not account-guarded with stale-read invalidation before refresh")
 }
 if (existsSync(actionsPath)) {
 	const source = readFileSync(actionsPath, "utf8")
-	check(source.match(/UBlueprintAsyncActionBase/g)?.length === 3, "expected HTTP, connect, and realtime Blueprint async actions")
+	check(source.match(/UBlueprintAsyncActionBase/g)?.length === 5, "expected HTTP, REST, connect, realtime, and sign-in Blueprint async actions")
 }
 
 check(existsSync(join(HERE, "README.md")), "spike has no README.md")

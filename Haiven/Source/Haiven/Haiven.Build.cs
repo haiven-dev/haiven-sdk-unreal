@@ -14,9 +14,10 @@ public class Haiven : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// The protocol core is plain C++17 with no engine types, so it compiles
-		// under an ordinary compiler and is tested that way. Unreal builds it
-		// too, using the C++20 mode required by the primary UE 5.8 target.
+		// The protocol, session and chat cores and the generated surface are the
+		// C++ SDK (sdks/cpp): plain C++17 with no engine types, compiled and tested
+		// under an ordinary compiler. Unreal builds them too, through HaivenCpp,
+		// using the C++20 mode required by the primary UE 5.8 target.
 		CppStandard = CppStandardVersion.Cpp20;
 
 		PublicDependencyModuleNames.AddRange(new string[]
@@ -24,20 +25,29 @@ public class Haiven : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			// Public, so a game module that includes this plugin's headers also
+			// gets the C++ SDK headers they include.
+			"HaivenCpp",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"ApplicationCore",
 			"HTTP",
-			"Json",
+			// The engine's embedded HTTP server receives the loopback redirect of
+			// BeginLoopbackGameLogin; Sockets supplies the peer address it checks.
+			"HTTPServer",
+			"Sockets",
+			// No "Json": frames, payloads and the handoff response are parsed by
+			// the C++ SDK's reader (HaivenJson.h), the one its tests prove.
 			"WebSockets",
 		});
 
 
-		// PKCE and state use the engine-pinned OpenSSL implementation on every
-		// supported platform; neither FMath::Rand nor GUIDs provide 256 bits of
-		// cryptographic entropy.
+		// The handoff's state and verifier entropy come from the engine-pinned
+		// OpenSSL RAND_bytes on every supported platform; neither FMath::Rand nor
+		// GUIDs provide 256 bits of cryptographic entropy. (The S256 hash itself
+		// is the C++ SDK's, in HaivenHandoffCore.h.)
 		AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
 	}
 }

@@ -13,7 +13,7 @@ namespace
 		Value.IntegrationId = TEXT("unreal-test");
 		Value.RedirectUrl = TEXT("haiven://login/complete?tenant=one");
 		Value.InstructionsId = TEXT("controller");
-		Value.ScreenHint = TEXT("login");
+		Value.ScreenHint = TEXT("signup");
 		Value.TransactionLifetime = FTimespan::FromSeconds(60);
 		return Value;
 	}
@@ -29,6 +29,31 @@ namespace
 	{
 		return Core.Begin(Config(), Entropy(0), Entropy(32), Now, Url, State, Error);
 	}
+
+	/** Saves across a simulated restart: a second FHandoffCore over it is the next launch. */
+	class FSavedCredentialStore final : public Haiven::IHandoffCredentialStore
+	{
+	public:
+		Haiven::FHandoffCredential Saved;
+		bool bSaved = false;
+
+		virtual bool Load(Haiven::FHandoffCredential& OutCredential) override
+		{
+			if (!bSaved) return false;
+			OutCredential = Saved;
+			return true;
+		}
+		virtual void Store(const Haiven::FHandoffCredential& Credential) override
+		{
+			Saved = Credential;
+			bSaved = true;
+		}
+		virtual void Clear() override
+		{
+			Saved = Haiven::FHandoffCredential();
+			bSaved = false;
+		}
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -155,8 +180,49 @@ bool FHaivenHandoffCredential::RunTest(const FString& Parameters)
 	TestFalse(TEXT("refresh credential is forbidden"), Core.StoreExchangeResponse(
 		TEXT("{\"access_token\":\"access-2\",\"token_type\":\"Bearer\",\"expires_in\":30,\"refresh_token\":\"never\"}"),
 		Now, Credential, Error));
+	TestFalse(TEXT("a missing expires_in is refused"), Haiven::FHandoffCore().StoreExchangeResponse(
+		TEXT("{\"access_token\":\"a\",\"token_type\":\"Bearer\"}"),
+		Now, Credential, Error));
+	TestFalse(TEXT("a string expires_in is refused"), Haiven::FHandoffCore().StoreExchangeResponse(
+		TEXT("{\"access_token\":\"a\",\"token_type\":\"Bearer\",\"expires_in\":\"30\"}"),
+		Now, Credential, Error));
+	TestFalse(TEXT("a fractional expires_in is refused"), Haiven::FHandoffCore().StoreExchangeResponse(
+		TEXT("{\"access_token\":\"a\",\"token_type\":\"Bearer\",\"expires_in\":1.5}"),
+		Now, Credential, Error));
+	TestFalse(TEXT("a negative expires_in is refused"), Haiven::FHandoffCore().StoreExchangeResponse(
+		TEXT("{\"access_token\":\"a\",\"token_type\":\"Bearer\",\"expires_in\":-1}"),
+		Now, Credential, Error));
 	Core.ClearCredential();
 	TestFalse(TEXT("logout clears token"), Core.GetAccessToken(Now, Token));
+
+	// ADR 0041: a null expires_in is a durable credential, and a store lets the
+	// next launch reuse it without a browser handoff.
+	const TSharedPtr<FSavedCredentialStore> Store = MakeShared<FSavedCredentialStore>();
+	{
+		Haiven::FHandoffCore Durable;
+		Durable.SetCredentialStore(Store);
+		TestTrue(TEXT("a null expires_in parses"), Durable.StoreExchangeResponse(
+			TEXT("{\"access_token\":\"durable\",\"token_type\":\"Bearer\",\"expires_in\":null}"),
+			Now, Credential, Error));
+		TestFalse(TEXT("a durable credential has no expiry"), Credential.bHasExpiry);
+		TestTrue(TEXT("a durable credential is readable far ahead"), Durable.GetAccessToken(Now + FTimespan::FromDays(36500), Token));
+		TestTrue(TEXT("the store saved the durable credential"), Store->bSaved && !Store->Saved.bHasExpiry);
+	}
+	TestTrue(TEXT("shutting down keeps the saved credential"), Store->bSaved);
+	Haiven::FHandoffCore Relaunch;
+	Relaunch.SetCredentialStore(Store);
+	TestTrue(TEXT("a saved credential is reused at start"), Relaunch.Resume(Now, Credential));
+	TestEqual(TEXT("the reused credential"), Credential.AccessToken, FString(TEXT("durable")));
+	TestFalse(TEXT("reuse leaves no pending handoff"), Relaunch.HasPendingTransaction());
+	Relaunch.ClearCredential();
+	TestFalse(TEXT("logout clears the saved credential"), Store->bSaved);
+	Haiven::FHandoffCredential Expired;
+	Expired.AccessToken = TEXT("finite");
+	Expired.TokenType = TEXT("Bearer");
+	Expired.ExpiresAt = Now;
+	Store->Store(Expired);
+	TestFalse(TEXT("an expired saved credential is not reused"), Relaunch.Resume(Now, Credential));
+	TestFalse(TEXT("an expired saved credential is cleared"), Store->bSaved);
 	return true;
 }
 #endif

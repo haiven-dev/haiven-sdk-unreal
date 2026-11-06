@@ -25,6 +25,24 @@ struct HAIVEN_API FHaivenClientOptions
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven")
 	FString AppId;
+
+	/**
+	 * Reconnect realtime after the socket closes or fails unexpectedly, and
+	 * authenticate the new socket with the current access token. Delays grow
+	 * exponentially from RealtimeReconnectInitialDelaySeconds up to
+	 * RealtimeReconnectMaxDelaySeconds, with jitter. DisconnectRealtime, Logout
+	 * and an account change never reconnect, and neither does a socket the server
+	 * refused for the account (a refused credential, a revoked game credential or
+	 * a parental-consent lock).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|Realtime")
+	bool bReconnectRealtime = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|Realtime", meta = (ClampMin = "0.1"))
+	float RealtimeReconnectInitialDelaySeconds = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|Realtime", meta = (ClampMin = "0.1"))
+	float RealtimeReconnectMaxDelaySeconds = 30.0f;
 };
 
 USTRUCT(BlueprintType)
@@ -43,6 +61,37 @@ struct HAIVEN_API FHaivenHttpResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "Haiven|HTTP")
 	FString Error;
+};
+
+/** One REST request, as a UHaivenRestRequests node builds it: send it with Send Rest Request. */
+USTRUCT(BlueprintType)
+struct HAIVEN_API FHaivenRestRequest
+{
+	GENERATED_BODY()
+
+	/** The HTTP method, upper case. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|REST")
+	FString Method;
+
+	/** The percent-encoded path and query, relative to the API base URL. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|REST")
+	FString Path;
+
+	/** The encoded body; empty when the operation sends none. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|REST")
+	FString Body;
+
+	/** The body's media type; empty when the operation sends no body. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|REST")
+	FString ContentType;
+
+	/** The success body's schema name (`X[]` for a list); empty when none. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|REST")
+	FString ResponseSchema;
+
+	/** A redirect-only operation: open the base URL plus Path in a browser instead. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Haiven|REST")
+	bool bNavigation = false;
 };
 
 USTRUCT(BlueprintType)
