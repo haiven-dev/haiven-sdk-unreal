@@ -1,5 +1,7 @@
 # Unreal spike — the C++ binding
 
+Haiven's software is Apache-2.0.
+
 ## The question
 
 **Does the outbound envelope's discriminant survive into C++, and can an Unreal
