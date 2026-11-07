@@ -1,240 +1,291 @@
-# Unreal spike — the C++ binding
+# Haiven SDK for Unreal Engine
 
-## The question
+The Haiven client as an Unreal Engine plugin. It signs a player in with
+Haiven's game-login handoff, calls the Haiven HTTP API, and keeps an
+authenticated `/v0/ws` session.
 
-**Does the outbound envelope's discriminant survive into C++, and can an Unreal
-binding be written so that a machine without Unreal can still check the part
-where the bug lives?**
+The plugin is beta. `Haiven/Haiven.uplugin` reports `VersionName` `0.0.0`
+and `IsBetaVersion` true. The behavior below matches this source tree.
 
-The first half is F10 asked for the third time. C# needed `bool?` plus an
-explicit presence check, because a non-nullable `bool` maps an absent field to
-`false` and turns every event into a failed reply. GDScript needed `has()`,
-because `get()` answers `null` and `null` is falsy. C++ has neither of those
-languages' excuses and the same trap available, so it is worth measuring rather
-than predicting.
+## License
 
-The second half is a reaction to **F20**. The Unity binding's WebGL transport
-turned out to be the only file in this repository that nothing compiled —
-written, reviewed, and never once put through a compiler, because it needed
-Unity to build. An Unreal module written the idiomatic way, in `FString` and
-`TSharedPtr<FJsonObject>`, would have been that file again and several hundred
-lines larger.
+Haiven's software is Apache-2.0.
 
-## What has been answered
+Copyright 2026 Haiven. The SPDX identifier is `Apache-2.0`.
 
-**The discriminant needs `std::optional<bool>`, and nothing weaker.** A plain
-`bool` cannot hold "absent", so it maps an event to `false` — the C# collapse
-exactly, in a language with no dynamic typing to blame it on. Three bindings,
-three languages, the same mistake available and idiomatic in each. It is a
-property of the discriminant, not of any language.
+Unreal Engine is not part of that license and is not in this repository.
+The engine, its tools, and Epic's sample games are covered by the
+[Unreal Engine EULA](https://www.unrealengine.com/eula/unreal). This
+plugin is Haiven source that calls Unreal Engine APIs.
 
-**So it is encoded rather than documented.** `HaivenProtocol.h` carries a
-`static_assert` that fails if `Success` is ever narrowed to `bool`, with the
-reason in the message. Verified by doing it: the assertion fires first, ahead of
-the cascade of `has_value` errors that would otherwise be the only signal and
-would read as a refactor to finish rather than a decision to reverse.
+## Requirements
 
-**The protocol core takes no engine types, and that is the point.** It is plain
-C++17 — `std::optional`, `std::string` — so `verify.sh` compiles and exercises it
-with an ordinary `g++`/`clang++` at `-Wall -Wextra -Werror`. The cost is real and
-worth stating rather than hiding: those types are unidiomatic in an Unreal
-module, and every value crossing into the engine layer pays a conversion. What
-it buys is that the classification logic — the part with the bug in it — is
-checkable at all, on a machine with no engine installed.
+Tested on Linux with Unreal Engine **5.8.2** (primary) and **5.6.1**.
+Other engine versions and platforms are outside that run. Prebuilt
+binaries are Linux-only; Win64 and Mac need a machine with that engine
+installed.
 
-## Game login handoff
+The game project must include C++. The `Haiven` module is a runtime
+module and loads at `PreDefault`. It uses the engine `HTTP`, `Json`, and
+`WebSockets` modules, and the engine's OpenSSL for PKCE. Leave the
+`WebSocketNetworking` plugin disabled. That plugin is replication
+transport. `Haiven.uplugin` names it only to keep it off.
 
-`UHaivenSubsystem` now owns the game login transaction and exchanged access
-token for one game instance. `BeginGameLogin` creates independent 256-bit state
-and PKCE verifier values with OpenSSL's platform CSPRNG, stores the verifier only
-in memory, opens the authorization URL through `FPlatformProcess::LaunchURL`,
-and returns the URL for hosts that also need to display or record it.
+`Haiven.uplugin` does not set `EngineVersion`. Unreal compares that field
+with the engine's compatible version, not as a minimum, so a fixed value
+loads in only one engine. The host targets under `host/Source/` set
+`BuildSettingsVersion.Latest` and `EngineIncludeOrderVersion.Latest` for
+the same reason: a pinned `V7` or `Unreal5_8` fails in UnrealBuildTool's
+C# rules assembly on 5.6 before any C++ is compiled.
 
-Route the platform deep-link callback to `HandleGameLoginCallback`. The
-subsystem validates the exact redirect scheme, authority, path, configured query
-and state before consuming the verifier. It then posts exactly `code`,
+## Install
+
+The plugin root is the `Haiven` directory that contains
+`Haiven.uplugin`. The repository root is not itself a plugin. Place the
+plugin at:
+
+```text
+<YourProject>/Plugins/Haiven/Haiven.uplugin
+```
+
+Copy or link `Haiven` into the game, regenerate project files, and
+compile. Confirm **Haiven** is enabled under Edit → Plugins, and restart
+the editor if it asks.
+
+A release zip has one top-level `Haiven/` folder. Install that folder the
+same way. Use a prebuilt zip only with the engine association encoded in
+its file name. A prebuilt plugin stamps `EngineVersion` and will not load
+in a different engine. The source zip does not stamp that field.
+
+## Configure
+
+`UHaivenSubsystem` is a `UGameInstanceSubsystem`. Call `Configure` before
+any HTTP or realtime call.
+
+| Field | Value |
+| --- | --- |
+| `BaseUrl` | `https` origin of the Haiven API. `http` is accepted only for `localhost`, `127.0.0.1`, or `::1`. A trailing slash is removed. |
+| `RealtimeUrl` | `wss` URL of `/v0/ws`. `ws` is accepted only on those loopback hosts. |
+| `AppId` | Optional. When set, HTTP requests send it as `X-Haiven-App-ID`. |
+
+Use the host from the integration issued for the game.
+
+## Game login
+
+`BeginGameLogin` draws 32 bytes of state and 32 bytes of PKCE verifier
+from the engine OpenSSL CSPRNG, keeps the verifier only in memory, opens
+the authorization URL with `FPlatformProcess::LaunchURL`, and returns
+that URL.
+
+| Field | Meaning |
+| --- | --- |
+| `EntryUrl` | Absolute `https` URL of the game login page (`/connect/game` on the Haiven host). `http` is accepted only on loopback. |
+| `ExchangeUrl` | Absolute `https` URL of `POST /v0/auth/handoff/exchange`, with the same loopback exception. |
+| `IntegrationId` | Public integration id. There is no client secret. |
+| `RedirectUrl` | Redirect URI registered for that integration. A custom scheme is allowed. |
+| `InstructionsId`, `ScreenHint` | Optional query values on the authorization URL. |
+| `TransactionLifetimeSeconds` | How long the verifier stays valid. The default is 900. |
+
+Unreal does not expose one deep-link delegate for desktop and mobile.
+When the platform delivers the redirect, pass the full callback URL to
+`HandleGameLoginCallback`. The subsystem checks scheme, authority, path,
+query, and state, consumes the verifier once, then posts exactly `code`,
 `code_verifier`, `integration_id`, and `redirect_uri` as
-`application/x-www-form-urlencoded` through `FHttpModule`. Completion and
-failure delegates are always dispatched to the game thread and are assignable
-from Blueprints.
+`application/x-www-form-urlencoded`.
 
-The stored credential is deliberately memory-only and contains the access token,
-token type, and absolute expiry. `GetAccessToken` refuses an expired credential;
-`Logout` clears it. The handoff has no client secret, refresh operation, or
-refresh-token property, and a response containing `refresh_token` is rejected.
-Games that require persistence must copy the credential into platform secure
-storage and rehydrate their own token source; the plugin does not use config
-files or `USaveGame` as a secret store.
+`OnGameLoginCompleted` and `OnGameLoginFailed` run on the game thread.
+`CancelGameLogin` clears the verifier and cancels an exchange that has
+not finished.
 
-The callback entry point is the cross-platform adapter boundary because Unreal
-does not expose one portable deep-link delegate across desktop and mobile. Call
-it from the platform lifecycle integration that receives the registered redirect
-scheme. Cancellation clears transient verifier state and cancels an in-flight
-HTTP exchange without producing a stale Blueprint completion.
+The stored credential is the access token, its token type, and an
+absolute expiry, and it stays in memory. `GetAccessToken` returns false
+after expiry. `Logout` clears it and disconnects realtime. A response
+body that contains `refresh_token` is rejected. There is no refresh
+call. When the token expires, start login again.
 
-## Runtime client
+Do not write the bearer to a config file or to `USaveGame`. A game that
+must keep it uses platform secure storage and restores it with
+`SetAccessToken`.
 
-`UHaivenSubsystem` is now the game-instance owner for all three runtime
-boundaries. `Request`/`RequestAsync` use `FHttpModule`, attach the current bearer
-and `X-Haiven-SDK`, return a cancellation handle, and surface one result on the
-game thread. `ConnectRealtime` creates an engine `IWebSocket`; the plain-C++
-`FSessionCore` sends auth first, queues application frames until `auth.success`,
-correlates replies, replays unanswered frames with their original IDs, and reads
-the token owner again for same-socket re-auth.
+```cpp
+UHaivenSubsystem* Haiven = GetGameInstance()->GetSubsystem<UHaivenSubsystem>();
 
-The split is deliberate. Unreal owns JSON conversion, `IWebSocket`, and
-`AsyncTask(ENamedThreads::GameThread, ...)`; `FSessionCore` owns protocol order
-and contains no engine type, so `verify.sh` exercises the behavior with an
-ordinary C++17 compiler. A raw-frame multicast remains available because auth
-frames are consumed into semantic state and therefore do not reach the
-reply/event arms.
+FHaivenClientOptions Client;
+Client.BaseUrl = TEXT("https://<haiven-host>");
+Client.RealtimeUrl = TEXT("wss://<haiven-host>/v0/ws");
+Client.AppId = TEXT("<app-id>");
+Haiven->Configure(Client);
 
-C++ callers can choose completion delegates or `TFuture` for HTTP, authenticated
-connect, and correlated realtime requests. Blueprints get three
-`UBlueprintAsyncActionBase` nodes for the same operations, each with an explicit
-cancel entry point. `SetAccessToken` is the host rehydration boundary for a
-bearer restored from platform secure storage; the plugin still does not persist
-credentials itself.
+Haiven->OnGameLoginCompleted.AddDynamic(
+    this, &UYourGameSubsystem::OnHaivenLogin);
+Haiven->OnGameLoginFailed.AddDynamic(
+    this, &UYourGameSubsystem::OnHaivenLoginFailed);
 
-## Running it
+FHaivenGameLoginOptions Login;
+Login.EntryUrl = TEXT("https://<haiven-host>/connect/game");
+Login.ExchangeUrl = TEXT("https://<haiven-host>/v0/auth/handoff/exchange");
+Login.IntegrationId = TEXT("<public-integration-id>");
+Login.RedirectUrl = TEXT("your-game://haiven/callback");
 
-```
-make check        # from the repository root
+FString AuthorizationUrl;
+FString Error;
+if (!Haiven->BeginGameLogin(Login, AuthorizationUrl, Error))
+{
+    // Error is set. No browser was left on a partial login.
+}
 ```
 
-Skips loudly without a C++ compiler.
+`OnHaivenLogin` and `OnHaivenLoginFailed` must be `UFUNCTION`s.
+`BeginGameLogin` is also Blueprint-callable in the **Haiven|Auth**
+category.
 
-## Conformance
+## REST and realtime
 
-`conformance_test.cpp` executes the published `gaming/v0` suite against the real
-`cmd/wsfixture`, driven by `scripts/check-unreal-conformance.py` and wired into
-`make check` through `check-unreal`. It drives `Haiven::FSessionCore` — the same
-core `HaivenNetworking.cpp` drives — rather than a raw socket, because the
-question is whether the binding can be driven by the step vocabulary, not
-whether the server answers; the node and dotnet runners already answer that from
-a bare transcript client.
+HTTP and realtime both require an unexpired access token, from login or
+from `SetAccessToken`.
 
-`gaming/v0/profiles/unreal.yaml` names `runner: unreal-automation` and requires
-`engine-independent-protocol-core`. That second requirement is what runs here.
-An `FAutomationTestBase` case would need an engine, and the machines this
-repository is checked on do not have one — so a conformance runner written that
-way would be the Unity WebGL transport again: written, reviewed, never executed.
-The suite reader and the transport are therefore plain C++17 over POSIX sockets,
-in `conformance/Json.h` and `conformance/Transport.h`, with no third-party
-header and nothing on the compiler's command line but `-std=c++17`.
+`Request` and `RequestAsync` send one call through `FHttpModule`. The
+path is appended to `BaseUrl` (use a path such as `/v0/...`). The request
+sends `Authorization: Bearer` and `X-Haiven-SDK`. Completion runs on the
+game thread. `CancelHttpRequest` cancels by the returned `FGuid`.
 
-Three things this runner established, each measured rather than argued:
+`ConnectRealtime` opens an engine `IWebSocket` to `RealtimeUrl`. It
+reports success only after `auth.success`. Until then the session queues
+application frames. It correlates replies by request id, replays
+unanswered frames with their original ids, and on expiry reads the token
+from the subsystem again. `OnAuthExpired` fires before that read.
+`DisconnectRealtime` closes the socket.
 
-**The raw arm is the only one that can observe the handshake, in C++ as in
-GDScript.** `FSessionCore` consumes `auth.success` and `auth.expired` into
-semantic state, so they never reach `OnReply`/`OnEvent`. Pointing the runner's
-inbox at those arms instead fails all four scenarios, and every failure reads
-`expected a auth.success and nothing arrived` — indistinguishable from a server
-that sent nothing. Third language, same finding.
+`SendRealtimeRequest` and `SendRealtimeRequestAsync` send one correlated
+frame. `CancelRealtimeRequest` cancels by request id.
 
-**`connect` and `auth` are separable here, and were not in Godot.** The addon is
-handed a token callable and handshakes itself the moment the socket opens, so
-`godot/conformance_test.gd` has to defer `connect` and do the work at `auth`,
-and refuses any corpus shape needing them apart. `FSessionCore` does not:
-`Opened()` is an explicit call, so the socket can be open with nothing written
-on it, and the runner asserts exactly that between the two steps. The corpus's
-two-step shape needs no adaptation in C++ — and the reason is the property the
-profile requires, a core the *runner* drives rather than one the transport
-drives.
+Blueprints have three async nodes for the same operations: **Http
+Request**, **Connect Realtime**, and **Realtime Request**. Each node has
+a Cancel call.
 
-**The auth payload is a JSON string and every other payload is an object.**
-`WriteClientFrame` special-cases `auth` and the runner restates it; serializing
-uniformly authenticates nobody and reads as a server rejecting valid tokens.
+`OnRealtimeFrame` receives every inbound frame, including auth frames.
+`OnRealtimeEvent` receives server events only. Auth frames are applied to
+session state and are not events or replies. A reply is a frame that
+includes `success`. An event omits it. Absence is not `false`. Treating
+a missing `success` as failure turns every event into a failed reply.
 
-Two guards, both proven non-vacuous. `check-unreal-conformance.py` recomputes
-the expected scenario count from the suite document rather than trusting the
-runner's self-report: making the runner also claim `deployment` drops it to a
-green 2-scenario run, and the stage fails on the count instead of accepting it.
-And the stage skips loudly — no compiler, no vendored suite, no backend checkout
-and no Go each name themselves, because a suite whose absence is
-indistinguishable from its success is not a suite.
+## Protocol core
 
-Network-adapter execution *through the engine* remains the open case: `host/`
-builds and ticks under both pinned engines but has never contacted a live
-fixture. `#sdkunrealeditorci` owns the provisioned runners that would change
-that.
+`HaivenProtocol.h` and `HaivenSessionCore.h` are C++17 and include no
+Unreal types, so `verify.sh` compiles them with an ordinary toolchain.
+`success` is `std::optional<bool>`. A `static_assert` rejects narrowing
+that field to `bool`. Values convert to Unreal types only at the engine
+boundary. The subsystem, HTTP client, and WebSocket code are not part of
+that engine-free build.
 
-## Engine-backed harness
+## Development
 
-`host/` supplies a minimal project plus plugin/module, protocol, session, and game-login
-automation tests. See [host/README.md](host/README.md) for the engine matrix
-runner and strict report checks. GitHub runner provisioning remains separate
-from this local engine proof.
+From the repository root, with no Unreal install:
+
+```sh
+./verify.sh
+node validate-plugin.mjs
+```
+
+`verify.sh` builds `protocol_test.cpp` as C++17 with `-Wall -Wextra
+-Werror` and runs it. That covers the protocol and session headers only.
+If neither `g++` nor `clang++` is on `PATH`, the script prints
+`skipping C++: no g++ or clang++` and exits 0. That skip is not a passing
+protocol run.
+
+`node validate-plugin.mjs` checks the plugin descriptor and the build
+rules. It does not load the plugin in an editor.
+
+With an entitled engine whose root directory contains `Engine/`:
+
+```sh
+python3 ci/run.py            # UE 5.8.2
+python3 ci/run.py 5.6.1
+python3 ci/run.py all
+```
+
+Set `UNREAL_ENGINE_ROOT_5_8` or `UNREAL_ENGINE_ROOT_5_6` to that root.
+`UNREAL_ENGINE_ROOT` is also consulted, and a root for a different
+version is skipped. `HAIVEN_UNREAL_VERSION` selects the same engine as
+the argument. The runner stages `host/` and the plugin, stamps
+`EngineAssociation`, builds `HaivenTestsEditor`, and runs the `Haiven.`
+automation filter. The case list and the runner image are in
+[host/README.md](host/README.md). Those editor tests do not open a live
+HTTP or WebSocket fixture.
+
+`conformance_test.cpp` drives `Haiven::FSessionCore` against an external
+suite. It is not part of `verify.sh`. It prints a skip and exits 0 unless
+`HAIVEN_CONFORMANCE_SUITE`, `HAIVEN_FIXTURE_BASE_URL`, and
+`HAIVEN_FIXTURE_WS_URL` are set.
 
 ## Supporting more than one engine version
 
-One source tree, built once per engine. Nothing under `Haiven/` or `host/` names
-a version; `ci/engines.json` carries the matrix and `ci/run.py` selects a row.
+One source tree, built once per engine. Nothing under `Haiven/` or
+`host/` names a version. `ci/engines.json` holds the matrix, and
+`ci/run.py` selects a row.
 
-Three things had to change, and each was measured on a second engine rather than
-predicted:
+Three constraints were measured on 5.8.2 and 5.6.1:
 
-**The descriptor's `EngineVersion` is a gate, not a minimum.** Unreal compares it
-against the engine's own *compatible* version, so any fixed value excludes every
-other engine — that is also why 5.8.2 needed `5.8.0` there. With `5.8.0` pinned,
-UE 5.6.1 refuses the plugin outright: *"The 'Haiven' plugin was designed for build
-5.8.0"*, and `Haiven.Plugin.Loads` fails while the three protocol tests still pass.
-Omitting the field is what lets one descriptor load in both. `validate-plugin.mjs`
-now requires it absent. A precompiled distribution is the exception: those
-binaries genuinely are version-specific and stamp the field per version at
-packaging time.
+- **`EngineVersion` stays unset in source.** With `5.8.0` in the
+  descriptor, UE 5.6.1 refuses the plugin ("The 'Haiven' plugin was
+  designed for build 5.8.0"). Omitting the field is what lets one
+  descriptor load in both. A prebuilt zip stamps the field for its own
+  engine at pack time.
+- **Target rules use `Latest`.** `BuildSettingsVersion.V7` and
+  `EngineIncludeOrderVersion.Unreal5_8` are unknown to older
+  UnrealBuildTool, so 5.6 fails while compiling the rules assembly
+  (`CS0117`), before any translation unit is built. `Latest` means this
+  engine's newest settings, which is what a from-source plugin wants.
+- **`EngineAssociation` is per engine.** Tracked
+  `host/HaivenTests.uproject` leaves it empty. `ci/run.py` writes the
+  selected engine's major.minor into the staged copy.
 
-**The first thing that breaks is C#, not C++.** `BuildSettingsVersion.V7` and
-`EngineIncludeOrderVersion.Unreal5_8` are enum members that older
-UnrealBuildTool does not define, so 5.6 fails while *compiling the rules
-assembly* — `error CS0117: 'BuildSettingsVersion' does not contain a definition
-for 'V7'`, `Result: Failed (RulesError)` — before one translation unit is
-compiled. `#if ENGINE_MINOR_VERSION` cannot help there; it is a different
-language. `Latest` is defined in every supported version and is the right answer
-for a plugin always built from source. The trade-off is real: `Latest` means
-"this engine's newest", so the same source gets different default build settings
-per engine, which is exactly what a from-source plugin wants and exactly what a
-binary distribution cannot have. `validate-plugin.mjs` now fails on a pinned
-`V<n>`/`Unreal5_<n>`.
+The plain C++ core has no version guards. Runtime glue stays on APIs this
+UE5 line shares: `UGameInstanceSubsystem`, `FHttpModule`, `IWebSocket`,
+and `UBlueprintAsyncActionBase`.
 
-**`EngineAssociation` cannot be version-agnostic**, since it is one value naming
-one engine. It is empty in the tracked `HaivenTests.uproject` and the runner
-stamps the selected engine's `MAJOR.MINOR` into its staged copy.
-
-The plain-C++ protocol/session core needs no version guards at all. The runtime
-glue deliberately uses APIs shared by the UE5 line (`UGameInstanceSubsystem`,
-`FHttpModule`, `IWebSocket`, and `UBlueprintAsyncActionBase`) rather than naming
-minor-version enums in source.
-
-Measured on September 18, 2026: the current runtime-client plugin built and all
-ten automation cases passed on **UE 5.8.2** (bundled Clang 20.1.8) and **UE
-5.6.1** (bundled Clang 18.1.0). The new cases execute the session state machine
-and verify the Blueprint nodes through reflection. They do not contact a live
-HTTP/WebSocket fixture, so network-adapter execution remains a future engine
-integration case. `#sdkunrealeditorci` still owns provisioned GitHub runners;
-local engine proof does not establish hosted-runner availability.
+Adding an engine means a new `ci/engines.json` row and a passing run of
+that row. It does not widen the claim on its own.
 
 ## Releases
 
-`.github/workflows/release.yml` publishes a GitHub release when a `v*` tag is
-pushed; `ci/release.py` builds every asset, so each step also runs locally.
+`.github/workflows/release.yml` publishes a GitHub release when a `v*`
+tag is pushed. `ci/release.py` builds every asset. The same script runs
+locally.
 
-1. Bump `VersionName` in `Haiven/Haiven.uplugin` to the new version on `main`
-   (and `Version`, the integer, by one). The workflow refuses a tag that is not
-   exactly `v` + `VersionName`.
-2. Tag that commit and push the tag: `git tag v1.2.3 && git push origin v1.2.3`.
+1. On `main`, set `VersionName` in `Haiven/Haiven.uplugin` to the release
+   version and increment the integer `Version` by one. The workflow
+   accepts a tag only when it is `v` plus that `VersionName`.
+2. Tag that commit and push the tag:
+   `git tag v1.2.3 && git push origin v1.2.3`.
 
-Assets, each a zip with one top-level `Haiven/` folder for `<Project>/Plugins/`:
+Each asset is a zip whose only top-level entry is `Haiven/`, for
+`<Project>/Plugins/`:
 
-- `haiven-unreal-plugin-source-<version>.zip`: the plugin without
-  Binaries/Intermediate; builds against any engine in `ci/engines.json`.
-- `haiven-unreal-plugin-<version>-UE<major.minor>-Linux.zip`: `RunUAT.sh
-  BuildPlugin` output per engine, with prebuilt `Binaries/Linux` and the
-  packaged descriptor's `EngineVersion` pinned to that engine.
-- `SHA256SUMS` over the zips.
+- `haiven-unreal-plugin-source-<version>.zip` — plugin source, without
+  `Binaries` or `Intermediate`. It builds against the engines in
+  `ci/engines.json`.
+- `haiven-unreal-plugin-<version>-UE<major.minor>-Linux.zip` —
+  `RunUAT.sh BuildPlugin` output for one engine, with prebuilt
+  `Binaries/Linux` and `EngineVersion` pinned to that engine.
+- `SHA256SUMS` covering those zips.
 
-Win64 and Mac binaries are not built: they need a Windows or macOS runner with
-the engine installed. Dispatching the workflow by hand with no tag is a dry run
-that builds every asset at the branch's `VersionName` and publishes nothing.
-The binary job runs on self-hosted runners, so the workflow must never gain a
-`pull_request` trigger: this repository is public.
+Win64 and Mac binaries are not built. Dispatching the workflow with no
+tag is a dry run: it builds the assets at the branch's `VersionName` and
+publishes nothing. The binary job runs on self-hosted runners. Do not add
+a `pull_request` or `pull_request_target` trigger to that workflow. This
+repository is public, and a pull-request trigger would run fork code on
+those runners.
+
+## Contributing
+
+Bug reports, fixes, and documentation improvements are welcome. Open an
+issue or a pull request against `main`:
+
+<https://github.com/haiven-dev/haiven-sdk-unreal/issues>
+
+Include the plugin `VersionName`, the Unreal Engine version, and the
+steps that show the problem. Do not paste access tokens or private
+endpoints. Commit subjects use Conventional Commits (`type(scope):
+subject`). Run `./verify.sh` and `node validate-plugin.mjs`. When an
+engine was available, name the version passed to `ci/run.py`.
