@@ -160,8 +160,13 @@ from the subsystem again. `OnAuthExpired` fires before that read.
 frame. `CancelRealtimeRequest` cancels by request id.
 
 Blueprints have three async nodes for the same operations: **Http
-Request**, **Connect Realtime**, and **Realtime Request**. Each node has
-a Cancel call.
+Request**, **Connect Realtime**, and **Realtime Request**. Those nodes
+are factories only. `Cancel` is a C++ method on the action object, and
+the node does not return that object, so a Blueprint cannot call it.
+`Request` and `SendRealtimeRequest` are not Blueprint-callable, so the
+graph never receives the `FGuid` or request id that `CancelHttpRequest`
+and `CancelRealtimeRequest` need. Close the socket from a Blueprint
+with `DisconnectRealtime`.
 
 `OnRealtimeFrame` receives every inbound frame, including auth frames.
 `OnRealtimeEvent` receives server events only. Auth frames are applied to
