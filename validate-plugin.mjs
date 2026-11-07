@@ -16,9 +16,12 @@
 //   node unreal/validate-plugin.mjs
 
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
-const HERE = new URL(".", import.meta.url).pathname
+// URL.pathname is "/C:/..." on Windows. path.join then builds "\C:\...\Haiven"
+// and readdirSync throws ENOENT before any descriptor check.
+const HERE = dirname(fileURLToPath(import.meta.url))
 const PLUGIN = join(HERE, "Haiven")
 
 const problems = []
