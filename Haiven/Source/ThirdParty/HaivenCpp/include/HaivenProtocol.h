@@ -77,7 +77,7 @@ namespace Haiven
 	static_assert(
 		!std::is_same_v<decltype(FServerFrame::Success), bool>,
 		"Success must be able to hold absent: an event omits the field, and a bool maps that to false, "
-		"which classifies every event as a failed reply. See haiven-sdk/docs/findings.md F10.");
+		"which classifies every event as a failed reply. See the protocol notes.");
 
 	/// Whether a frame answers something this client sent.
 	///
