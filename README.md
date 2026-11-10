@@ -239,6 +239,10 @@ local engine proof does not establish hosted-runner availability.
 
 `.github/workflows/release.yml` publishes a GitHub release when a `v*` tag is
 pushed; `ci/release.py` builds every asset, so each step also runs locally.
+`.github/workflows/source-hosted.yml` checks that source on GitHub-hosted
+Linux, Windows, and macOS (protocol compile, descriptor, release-script
+tests). The release workflow calls it before the Linux binary jobs. It does
+not build plugin binaries.
 
 1. Bump `VersionName` in `Haiven/Haiven.uplugin` to the new version on `main`
    (and `Version`, the integer, by one). The workflow refuses a tag that is not
@@ -254,8 +258,16 @@ Assets, each a zip with one top-level `Haiven/` folder for `<Project>/Plugins/`:
   packaged descriptor's `EngineVersion` pinned to that engine.
 - `SHA256SUMS` over the zips.
 
-Win64 and Mac binaries are not built: they need a Windows or macOS runner with
-the engine installed. Dispatching the workflow by hand with no tag is a dry run
-that builds every asset at the branch's `VersionName` and publishes nothing.
-The binary job runs on self-hosted runners, so the workflow must never gain a
-`pull_request` trigger: this repository is public.
+Win64 and Mac binaries are not built. `BuildPlugin` for Win64 needs
+`RunUAT.bat` on Windows, and Mac needs `RunUAT.sh` plus Xcode. GitHub-hosted
+runners do not include Unreal Engine, and this repository does not contain
+the engine, so those platforms have no hosted binary job. A self-hosted
+Windows or macOS runner is not wired in either: a missing label would queue
+the release until timeout and block the Linux zips. Linux binaries stay on
+the self-hosted runners named in `ci/engines.json`.
+
+Dispatching the workflow by hand with no tag is a dry run that builds every
+asset at the branch's `VersionName` and publishes nothing. The binary job
+runs on self-hosted runners, so `release.yml` must never gain a
+`pull_request` trigger: this repository is public. Source checks on pull
+requests run from `source-hosted.yml`, which has no self-hosted runner.

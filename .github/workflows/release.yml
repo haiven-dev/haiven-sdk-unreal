@@ -2,11 +2,14 @@ name: Release
 
 # Publishes a GitHub release for a `v*` tag: the plugin source bundle plus a
 # prebuilt Linux plugin per engine in ci/engines.json, with SHA256SUMS.
+# source-hosted.yml checks that same source on GitHub-hosted Linux, Windows,
+# and macOS. It does not build plugin binaries.
 #
 # SECURITY: this repository is public and the binary job runs on self-hosted
 # runners. Never add a `pull_request` or `pull_request_target` trigger here.
 # Only people with write access can push a tag or dispatch a workflow, so fork
-# code never reaches a self-hosted runner through this file.
+# code never reaches a self-hosted runner through this file. Cross-platform
+# source checks live in source-hosted.yml, which has no self-hosted runner.
 on:
   push:
     tags: ["v*"]
@@ -89,13 +92,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  hosted-source:
+    name: Hosted source (Linux, Windows, macOS)
+    if: github.repository == 'haiven-dev/haiven-sdk-unreal'
+    uses: ./.github/workflows/source-hosted.yml
+    with:
+      ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+
   binaries:
     name: Unreal ${{ matrix.version }} ${{ matrix.platform }} binaries
-    needs: source
+    needs: [source, hosted-source]
     # Rows come from ci/engines.json (Linux, one per engine). Win64 and Mac are
-    # not built: they need a Windows (RunUAT.bat, -TargetPlatforms=Win64) or
-    # macOS host with the engine installed, registered with its own label, and
-    # a matching runs-on below. Until then those assets are not published.
+    # not built on GitHub-hosted runners: BuildPlugin for Win64 needs RunUAT.bat
+    # on Windows, and Mac needs RunUAT.sh plus Xcode. Those images do not ship
+    # Unreal Engine, and this repository does not contain the engine, so there
+    # is no hosted job to add. A self-hosted Windows or macOS label is not
+    # listed here either: a missing runner would queue the release until it
+    # times out and would block the Linux assets that can be built.
     strategy:
       fail-fast: true
       matrix: ${{ fromJSON(needs.source.outputs.matrix) }}
