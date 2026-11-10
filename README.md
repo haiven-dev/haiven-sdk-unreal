@@ -216,13 +216,17 @@ local engine proof does not establish hosted-runner availability.
 
 ## Releases
 
-`.github/workflows/release.yml` publishes a GitHub release when a `v*` tag is
-pushed; `ci/release.py` builds every asset, so each step also runs locally.
+release-please (`.github/workflows/release-please.yml`) runs on `main`. After an
+sdk-dev promotion merges, it opens a release pull request. That pull request
+bumps `CHANGELOG.md`, `.release-please-manifest.json`, and `VersionName` in
+`Haiven/Haiven.uplugin`. It does not change the integer `Version` field.
+Merging the release pull request tags `v<version>` and publishes the GitHub
+release. Do not bump `VersionName` by hand or push that tag yourself; a second
+tag races the release pull request.
 
-1. Bump `VersionName` in `Haiven/Haiven.uplugin` to the new version on `main`
-   (and `Version`, the integer, by one). The workflow refuses a tag that is not
-   exactly `v` + `VersionName`.
-2. Tag that commit and push the tag: `git tag v1.2.3 && git push origin v1.2.3`.
+`.github/workflows/release.yml` runs on the `v*` tag. `ci/release.py` builds
+every asset and refuses a tag that is not exactly `v` + `VersionName`. Each
+build step also runs locally.
 
 Assets, each a zip with one top-level `Haiven/` folder for `<Project>/Plugins/`:
 
