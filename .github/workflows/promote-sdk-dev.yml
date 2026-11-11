@@ -8,8 +8,8 @@ name: promote sdk-dev
 # approval. The expected SHA makes each dispatch an exact, reviewable action.
 #
 # The pull request head is a disposable branch named for that sdk-dev SHA.
-# delete_branch_on_merge may delete that head. This workflow never merges and
-# never deletes or resets sdk-dev.
+# delete_branch_on_merge is off, so merge does not delete that head. This
+# workflow never merges and never deletes or resets sdk-dev.
 on:
   workflow_dispatch:
     inputs:
@@ -80,14 +80,20 @@ jobs:
           {
             echo "Promotes the exact reviewed sdk-dev head into main."
             echo
+            echo "Squash-merge this promotion. Do not use a merge commit or rebase."
+            echo "release-please substitutes BEGIN_COMMIT_OVERRIDE for the single commit"
+            echo "it associates with this pull request, and that substitution is correct"
+            echo "only for a squash merge. A merge commit lists each change twice, and a"
+            echo "rebase repeats the override once per replayed commit."
+            echo
             echo "- sdk-dev: \`$sdk_dev_sha\`"
             echo "- main at dispatch: \`$main_sha\`"
             echo "- commits in promotion range: $commit_count"
-            echo "- promotion head: \`$promotion_branch\` (deleted on merge; sdk-dev is not)"
+            echo "- promotion head: \`$promotion_branch\`"
             echo
-            echo "The release-please workflow runs on main after this PR merges. It opens"
-            echo "the separately reviewed version/changelog PR; merging that PR publishes"
-            echo "the tag and GitHub release."
+            echo "The release-please workflow runs on main after this promotion is"
+            echo "squash-merged. It opens the separately reviewed version/changelog PR;"
+            echo "merging that PR publishes the tag and GitHub release."
             echo
             echo "BEGIN_COMMIT_OVERRIDE"
             # Subject, plus breaking and Release-As footers. Raw %B can exceed
