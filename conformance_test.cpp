@@ -27,9 +27,9 @@
 // `#sdkunrealeditorci` still owns provisioned runners. A conformance runner
 // that could only run where they are would be the Unity WebGL transport again
 // (F20): written, reviewed, never once executed. The engine-side half is the
-// transport, and `unreal/host/` already builds and ticks under both pinned
+// transport, and `host/` already builds and ticks under both pinned
 // engines; what it has never done is contact a live fixture, which
-// `unreal/README.md` records as the open engine-integration case.
+// `README.md` records as the open engine-integration case.
 
 #include "Haiven/Source/Haiven/Public/HaivenProtocol.h"
 #include "Haiven/Source/Haiven/Public/HaivenSessionCore.h"

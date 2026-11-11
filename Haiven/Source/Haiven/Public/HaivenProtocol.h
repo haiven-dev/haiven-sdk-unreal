@@ -9,7 +9,7 @@
 // until someone opens it in an editor nobody here has.
 //
 // So the protocol core takes no engine dependency and is compiled and exercised
-// by `unreal/verify.sh` under an ordinary compiler. The engine glue —
+// by `verify.sh` under an ordinary compiler. The engine glue —
 // subsystem, IWebSocket, Blueprint nodes — stays in Private/ where it belongs
 // and is explicitly NOT verified here.
 //

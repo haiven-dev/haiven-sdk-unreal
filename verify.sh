@@ -3,7 +3,7 @@
 #
 # Which is the protocol and session core, deliberately: see the headers for why
 # they carry no engine types. The engine glue under Private/ is NOT built here
-# and is not claimed to be — `unreal/README.md` says what remains unverified.
+# and is not claimed to be — `README.md` says what remains unverified.
 #
 # Skips loudly rather than passing quietly without a compiler, like every other
 # toolchain-dependent check in this repository.
