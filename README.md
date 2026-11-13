@@ -81,7 +81,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Issues:
 
 ## License
 
-Apache-2.0. Copyright 2026 Haiven.
+Copyright 2026 Haiven Inc. Haiven's source in this repository is
+licensed under the Apache License, Version 2.0 (SPDX `Apache-2.0`). The
+terms are in [LICENSE.md](LICENSE.md); the plugin directory carries the
+same text at [Haiven/LICENSE.md](Haiven/LICENSE.md).
 
 Unreal Engine is not part of that license and is not in this repository.
 The engine, its tools, and Epic's sample games are covered by the
