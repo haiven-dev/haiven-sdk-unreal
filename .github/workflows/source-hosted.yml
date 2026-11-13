@@ -1,0 +1,74 @@
+name: Source
+
+# Engine-free source checks on GitHub-hosted runners. The plugin source is one
+# tree for Linux, Windows, and macOS: compile the protocol core, check the
+# descriptor, and run the release-script tests. These jobs do not produce
+# plugin binaries.
+#
+# Win64 and Mac binaries are not jobs in this file. BuildPlugin is host-native
+# (RunUAT.bat on Windows, RunUAT.sh plus Xcode on macOS), and GitHub-hosted
+# images do not include Unreal Engine. The engine is not in this repository,
+# so these runners cannot install it. Linux binaries stay in release.yml on
+# the self-hosted runners that already have the engine.
+#
+# This file is the pull_request workflow. It must not use a self-hosted runner.
+# release.yml calls it and must remain the only workflow that does.
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check out. Empty checks out github.sha."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Source (${{ matrix.os }})
+    if: github.repository == 'haiven-dev/haiven-sdk-unreal'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Engine-free C++ protocol check
+        env:
+          HAIVEN_REQUIRE_CXX: "1"
+        run: |
+          set -euo pipefail
+          # windows-latest installs LLVM off PATH for some shells. Git bash
+          # sees this directory when the image has it; Linux and macOS do not.
+          llvm="/c/Program Files/LLVM/bin"
+          if [[ -d "$llvm" ]]; then
+            PATH="${llvm}:${PATH}"
+          fi
+          export PATH
+          ./verify.sh
+      - name: Plugin descriptor
+        run: node validate-plugin.mjs
+      - name: Release script tests
+        run: |
+          set -euo pipefail
+          if command -v python3 >/dev/null 2>&1; then
+            python3 -m unittest discover -s ci -p 'test_*.py' -v
+          else
+            python -m unittest discover -s ci -p 'test_*.py' -v
+          fi
