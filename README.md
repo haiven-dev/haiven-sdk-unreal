@@ -4,8 +4,9 @@ The Haiven client as an Unreal Engine plugin. It signs a player in with
 Haiven's game-login handoff, calls the Haiven HTTP API, and keeps an
 authenticated `/v0/ws` session.
 
-The plugin is beta. `Haiven/Haiven.uplugin` reports `VersionName` `0.0.0`
-and `IsBetaVersion` true. The behavior below matches this source tree.
+The plugin is beta. `Haiven/Haiven.uplugin` reports `VersionName`
+`0.1.0-preview.1` and `IsBetaVersion` true. The behavior below matches
+this source tree.
 
 ## License
 
@@ -26,10 +27,13 @@ binaries are Linux-only; Win64 and Mac need a machine with that engine
 installed.
 
 The game project must include C++. The `Haiven` module is a runtime
-module and loads at `PreDefault`. It uses the engine `HTTP`, `Json`, and
-`WebSockets` modules, and the engine's OpenSSL for PKCE. Leave the
-`WebSocketNetworking` plugin disabled. That plugin is replication
-transport. `Haiven.uplugin` names it only to keep it off.
+module and loads at `PreDefault`. It uses the engine `HTTP`,
+`WebSockets`, `HTTPServer`, and `Sockets` modules (the last two receive
+the loopback login redirect), and the engine's OpenSSL for login
+entropy. The `HaivenEditor` module is editor-only and adds the **Haiven
+Diagnostics** tab. Leave the `WebSocketNetworking` plugin disabled. That
+plugin is replication transport. `Haiven.uplugin` names it only to keep
+it off.
 
 `Haiven.uplugin` does not set `EngineVersion`. Unreal compares that field
 with the engine's compatible version, not as a minimum, so a fixed value
@@ -67,6 +71,7 @@ any HTTP or realtime call.
 | `BaseUrl` | `https` origin of the Haiven API. `http` is accepted only for `localhost`, `127.0.0.1`, or `::1`. A trailing slash is removed. |
 | `RealtimeUrl` | `wss` URL of `/v0/ws`. `ws` is accepted only on those loopback hosts. |
 | `AppId` | Optional. When set, HTTP requests send it as `X-Haiven-App-ID`. |
+| `bReconnectRealtime` | Default true. Reconnects realtime after an unexpected close, with exponential backoff and jitter from `RealtimeReconnectInitialDelaySeconds` (1) to `RealtimeReconnectMaxDelaySeconds` (30). |
 
 Use the host from the integration issued for the game.
 
@@ -74,8 +79,9 @@ Use the host from the integration issued for the game.
 
 `BeginGameLogin` draws 32 bytes of state and 32 bytes of PKCE verifier
 from the engine OpenSSL CSPRNG, keeps the verifier only in memory, opens
-the authorization URL with `FPlatformProcess::LaunchURL`, and returns
-that URL.
+the authorization URL, and returns that URL. It opens the URL with
+`FPlatformProcess::LaunchURL` unless `SetLoginUrlLauncher` installed a
+different launcher.
 
 | Field | Meaning |
 | --- | --- |
@@ -93,19 +99,32 @@ query, and state, consumes the verifier once, then posts exactly `code`,
 `code_verifier`, `integration_id`, and `redirect_uri` as
 `application/x-www-form-urlencoded`.
 
+On desktop, `BeginLoopbackGameLogin` needs no deep-link handler. It
+listens on the `http://127.0.0.1:<port>/<path>` or
+`http://localhost:<port>/<path>` redirect in `RedirectUrl`, which must be
+registered exactly on the integration, and passes the browser's redirect
+to the same callback checks. The route closes when the login ends.
+
 `OnGameLoginCompleted` and `OnGameLoginFailed` run on the game thread.
 `CancelGameLogin` clears the verifier and cancels an exchange that has
 not finished.
 
-The stored credential is the access token, its token type, and an
-absolute expiry, and it stays in memory. `GetAccessToken` returns false
-after expiry. `Logout` clears it and disconnects realtime. A response
-body that contains `refresh_token` is rejected. There is no refresh
-call. When the token expires, start login again.
+The credential is the access token, its token type, and an absolute
+expiry, or no expiry for a durable credential. `GetAccessToken` returns
+false after expiry. `Logout` clears it and disconnects realtime. A
+response body that contains `refresh_token` is rejected.
 
-Do not write the bearer to a config file or to `USaveGame`. A game that
-must keep it uses platform secure storage and restores it with
-`SetAccessToken`.
+Without a credential store the credential lasts until the game exits.
+`SetCredentialStore` takes a game-supplied
+`Haiven::IHandoffCredentialStore` (`Load`, `Store`, `Clear`), such as a
+platform keychain. `ResumeGameLogin` then signs in from the saved
+credential without opening the browser. Call it at start, before
+`BeginGameLogin`. `Logout` and a refused credential clear the store.
+Do not write the bearer to a config file or to `USaveGame`.
+
+`SetAccessToken` replaces the signed-in account with a bearer the game
+obtained itself. `RefreshAccessToken` swaps the bearer for the same
+account without tearing down realtime.
 
 ```cpp
 UHaivenSubsystem* Haiven = GetGameInstance()->GetSubsystem<UHaivenSubsystem>();
@@ -154,19 +173,21 @@ reports success only after `auth.success`. Until then the session queues
 application frames. It correlates replies by request id, replays
 unanswered frames with their original ids, and on expiry reads the token
 from the subsystem again. `OnAuthExpired` fires before that read.
-`DisconnectRealtime` closes the socket.
+`DisconnectRealtime` closes the socket and cancels a scheduled
+reconnect.
 
 `SendRealtimeRequest` and `SendRealtimeRequestAsync` send one correlated
 frame. `CancelRealtimeRequest` cancels by request id.
 
-Blueprints have three async nodes for the same operations: **Http
-Request**, **Connect Realtime**, and **Realtime Request**. Those nodes
+Blueprints have async nodes for these operations: **Sign In With
+Haiven**, **Http Request**, **Send Rest Request**, **Connect Realtime**,
+and **Realtime Request**. Those nodes
 are factories only. `Cancel` is a C++ method on the action object, and
 the node does not return that object, so a Blueprint cannot call it.
 `Request` and `SendRealtimeRequest` are not Blueprint-callable, so the
 graph never receives the `FGuid` or request id that `CancelHttpRequest`
 and `CancelRealtimeRequest` need. Close the socket from a Blueprint
-with `DisconnectRealtime`.
+with `DisconnectRealtime`, and abandon a login with `CancelGameLogin`.
 
 `OnRealtimeFrame` receives every inbound frame, including auth frames.
 `OnRealtimeEvent` receives server events only. Auth frames are applied to
@@ -174,9 +195,19 @@ session state and are not events or replies. A reply is a frame that
 includes `success`. An event omits it. Absence is not `false`. Treating
 a missing `success` as failure turns every event into a failed reply.
 
+## Other surfaces
+
+`HaivenChat.h`, `HaivenRewards.h`, `HaivenAnalytics.h`,
+`HaivenIdentity.h`, and `HaivenHealth.h` add chat, reward claims,
+analytics, sign-in identity, and connection health. Generated Blueprint
+types and REST operations are under
+`Haiven/Source/Haiven/Public/Blueprint/`.
+This README does not document those surfaces yet. Their headers do.
+
 ## Protocol core
 
-`HaivenProtocol.h` and `HaivenSessionCore.h` are C++17 and include no
+`HaivenProtocol.h` and `HaivenSessionCore.h`, under
+`Haiven/Source/ThirdParty/HaivenCpp/include/`, are C++17 and include no
 Unreal types, so `verify.sh` compiles them with an ordinary toolchain.
 `success` is `std::optional<bool>`. A `static_assert` rejects narrowing
 that field to `bool`. Values convert to Unreal types only at the engine
@@ -218,10 +249,11 @@ automation filter. The case list and the runner image are in
 [host/README.md](host/README.md). Those editor tests do not open a live
 HTTP or WebSocket fixture.
 
-`conformance_test.cpp` drives `Haiven::FSessionCore` against an external
-suite. It is not part of `verify.sh`. It prints a skip and exits 0 unless
-`HAIVEN_CONFORMANCE_SUITE`, `HAIVEN_FIXTURE_BASE_URL`, and
-`HAIVEN_FIXTURE_WS_URL` are set.
+`conformance_test.cpp` drives `Haiven::FSessionCore` against the suite
+at `conformance/gaming-client/v0/generated/suite.json`. It is not part
+of `verify.sh`. It prints a skip and exits 0 unless
+`HAIVEN_CONFORMANCE_SUITE` (that file's path),
+`HAIVEN_FIXTURE_BASE_URL`, and `HAIVEN_FIXTURE_WS_URL` are set.
 
 ## Supporting more than one engine version
 
