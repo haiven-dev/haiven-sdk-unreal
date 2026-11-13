@@ -10,8 +10,8 @@
 // name — so catching them here costs nothing and saves the slowest feedback loop
 // in this stack.
 //
-// This is not a substitute for loading the plugin in an editor. See README.md
-// for what remains unverified.
+// This is not a substitute for loading the plugin in an editor. See
+// docs/development.md for what remains unverified.
 //
 //   node validate-plugin.mjs
 
@@ -213,4 +213,4 @@ if (problems.length > 0) {
 }
 
 console.error("Haiven.uplugin: descriptor and build rules valid")
-console.error("NOT a substitute for loading the plugin in an editor — see README.md")
+console.error("NOT a substitute for loading the plugin in an editor — see docs/development.md")

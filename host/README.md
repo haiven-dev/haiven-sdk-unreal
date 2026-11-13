@@ -78,7 +78,7 @@ minimum, so any fixed value excludes every other engine: `5.8.2` made 5.8.2
 itself disable the plugin (it reports 5.8.0), and `5.8.0` makes 5.6.1 refuse it
 with *"The 'Haiven' plugin was designed for build 5.8.0"*. The per-engine pins
 live in `ci/engines.json` instead. See
-[../README.md](../README.md#supporting-more-than-one-engine-version) for the
+[../docs/engine-versions.md](../docs/engine-versions.md) for the
 other two version-specific settings and why `Latest` is the answer for the
 target rules.
 
