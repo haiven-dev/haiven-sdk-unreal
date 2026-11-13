@@ -33,12 +33,18 @@ bool FHaivenSessionAuthQueueReauth::RunTest(const FString& Parameters)
 
 	const std::string InFlightId = Session.Send("presence.set", std::string("{}"));
 	Token = "two";
+	// The lapse refuses InFlightId by name; only a named request is resent
+	// (spec/client.md, SDK-RECOVERY-2/3).
+	Haiven::FServerFrame Refused;
+	Refused.Type = Haiven::AuthExpiredType;
+	Refused.RequestId = InFlightId;
+	Refused.Success = false;
+	Session.Receive(Refused, "{}");
+	TestTrue(TEXT("same session rereads token"), Written.size() == 4 && Written[3].PayloadJson == "two");
 	Haiven::FServerFrame Expired;
 	Expired.Type = Haiven::AuthExpiredType;
 	Expired.RequestId = std::string();
 	Expired.Success = false;
-	Session.Receive(Expired, "{}");
-	TestTrue(TEXT("same session rereads token"), Written.size() == 4 && Written[3].PayloadJson == "two");
 	Session.Receive(Expired, "{}");
 	TestEqual(TEXT("one auth per expiry episode"), static_cast<int32>(Written.size()), 4);
 	Haiven::FServerFrame LateReply;
@@ -47,7 +53,7 @@ bool FHaivenSessionAuthQueueReauth::RunTest(const FString& Parameters)
 	LateReply.Success = true;
 	Session.Receive(LateReply, "{}");
 	Session.Receive(Success, "{}");
-	TestTrue(TEXT("a late answer is removed before replay"), Written.size() == 5
+	TestTrue(TEXT("only the refused request replays, and a late answer is not resent"), Written.size() == 5
 		&& Written[4].RequestId == InFlightId);
 	return true;
 }

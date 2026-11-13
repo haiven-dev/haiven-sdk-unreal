@@ -11,8 +11,8 @@
 // So this compiles HaivenProtocol.h with an ordinary compiler and exercises it.
 // The engine glue is not covered and does not pretend to be.
 
-#include "Haiven/Source/Haiven/Public/HaivenProtocol.h"
-#include "Haiven/Source/Haiven/Public/HaivenSessionCore.h"
+#include "Haiven/Source/ThirdParty/HaivenCpp/include/HaivenProtocol.h"
+#include "Haiven/Source/ThirdParty/HaivenCpp/include/HaivenSessionCore.h"
 
 #include <iostream>
 #include <string>
@@ -157,7 +157,7 @@ int main()
 	Reauthenticated.Type = Haiven::AuthSuccessType;
 	Reauthenticated.Success = true;
 	Session.Receive(Reauthenticated, "reauthenticated");
-	Check("only unanswered frames replay with their original id", Written.size() == 5 && Written[4].RequestId == InFlightId);
+	Check("a re-auth replays nothing until the server reports the frame dropped", Written.size() == 4 && !InFlightId.empty());
 	Session.Closed(1000, "done");
 	Check("close is terminal", Session.GetState() == Haiven::ESessionState::Closed);
 
