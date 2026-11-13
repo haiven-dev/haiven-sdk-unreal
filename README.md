@@ -216,13 +216,22 @@ local engine proof does not establish hosted-runner availability.
 
 ## Releases
 
+Changes land on `sdk-dev` first. `.github/workflows/promotion-pr.yml` keeps one
+open pull request from `sdk-dev` into `main` and lists, by conventional-commit
+type, the commits `main` does not have yet. It refreshes that list on every
+push to either branch. It never merges, versions, tags, or releases. Merge the
+promotion with a merge commit, not squash or rebase, so `main` contains every
+`sdk-dev` commit and the next list starts after them.
+
 `.github/workflows/release.yml` publishes a GitHub release when a `v*` tag is
 pushed; `ci/release.py` builds every asset, so each step also runs locally.
 
-1. Bump `VersionName` in `Haiven/Haiven.uplugin` to the new version on `main`
-   (and `Version`, the integer, by one). The workflow refuses a tag that is not
-   exactly `v` + `VersionName`.
-2. Tag that commit and push the tag: `git tag v1.2.3 && git push origin v1.2.3`.
+1. Bump `VersionName` in `Haiven/Haiven.uplugin` to the new version on
+   `sdk-dev` (and `Version`, the integer, by one), then merge the promotion
+   pull request. The workflow refuses a tag that is not exactly `v` +
+   `VersionName`.
+2. Tag the promotion merge commit on `main` and push the tag:
+   `git tag v1.2.3 && git push origin v1.2.3`.
 
 Assets, each a zip with one top-level `Haiven/` folder for `<Project>/Plugins/`:
 
