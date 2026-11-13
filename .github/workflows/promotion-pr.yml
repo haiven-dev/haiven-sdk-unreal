@@ -1,0 +1,61 @@
+name: Promotion PR
+
+# Keeps one open pull request that promotes sdk-dev into main. Its description
+# lists, by conventional-commit type, the commits sdk-dev carries that main
+# lacks, and is refreshed on every push to either branch. Nothing here merges,
+# versions, tags, or releases; release.yml still runs on a pushed v* tag.
+#
+# A push runs the workflow file of the branch it lands on, so this file has to
+# be on both main and sdk-dev before pushes to both trigger it.
+#
+# The token comes from the Haiven release GitHub App rather than GITHUB_TOKEN:
+# a pull request opened with GITHUB_TOKEN starts no pull_request workflows, so
+# build.yml would never check the promotion. The app needs pull-requests write
+# and contents read on this repository only; nothing here pushes a branch.
+on:
+  push:
+    branches: [sdk-dev, main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: promotion-pr-${{ github.repository }}-sdk-dev-main
+  cancel-in-progress: false
+
+jobs:
+  promotion-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Mint promotion token
+        id: promotion-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.HAIVEN_RELEASE_APP_ID }}
+          private-key: ${{ secrets.HAIVEN_RELEASE_APP_PRIVATE_KEY }}
+          owner: haiven-dev
+          repositories: haiven-sdk-unreal
+          permission-contents: read
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: haiven-dev/haiven-actions/actions/promotion-pr@407d8e232ebd2b733db9f9ac2c88ae382fdce149 # main
+        with:
+          token: ${{ steps.promotion-token.outputs.token }}
+          source-branch: sdk-dev
+          target-branch: main
+          title: "chore: promote sdk-dev into main"
+          note: >-
+            Merge with a **merge commit**, not squash or rebase, so `main`
+            holds each `sdk-dev` commit and the next list starts where this
+            one ends. Merging does not release anything: to publish, bump
+            `VersionName` in `Haiven/Haiven.uplugin` on `sdk-dev` before
+            promoting, then tag the merge commit on `main` as described in
+            the README.
