@@ -132,9 +132,9 @@ bundle and prebuilt Linux plugins when a `v*` tag is pushed. See
 than a raw socket, because the question is whether the binding can be driven by
 the step vocabulary, not whether the server answers; the node and dotnet
 runners already answer that from a bare transcript client. `./verify.sh` does
-not compile this file. The harness that started `cmd/wsfixture` and checked the
-scenario count is not in this repository, so this file is not a standalone
-check here.
+not compile this file. The harness that started `the websocket fixture` and
+checked the scenario count is not in this repository, so this file is not a
+standalone check here.
 
 `gaming/v0/profiles/unreal.yaml` names `runner: unreal-automation` and requires
 `engine-independent-protocol-core`. That second requirement is what runs here.
