@@ -17,16 +17,25 @@ The plugin is beta (`0.1.0-preview.1`).
 
 ## Install
 
-Place the `Haiven` directory (the one that contains `Haiven.uplugin`, not
-the repository root) at:
+Download `haiven-unreal-plugin-source-0.1.0-preview.1.zip` from the
+[Unreal SDK release](https://github.com/haiven-dev/haiven-sdk-unreal/releases/tag/v0.1.0-preview.1)
+and extract the `Haiven` folder. The release includes `SHA256SUMS`.
+
+To use the public source checkout, clone the release tag and copy the
+`haiven-sdk-unreal/Haiven` folder.
+
+```sh
+git clone --depth 1 --branch v0.1.0-preview.1 https://github.com/haiven-dev/haiven-sdk-unreal.git
+```
+
+Place the `Haiven` directory in `Plugins` so your project contains this file.
 
 ```text
 <YourProject>/Plugins/Haiven/Haiven.uplugin
 ```
 
 Regenerate project files, compile, and confirm **Haiven** is enabled
-under Edit → Plugins. A release zip has one top-level `Haiven/` folder;
-install it the same way.
+under **Edit → Plugins**.
 
 ## Quick start
 
